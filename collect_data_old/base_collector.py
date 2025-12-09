@@ -58,6 +58,14 @@ except ImportError:
     NOISER_AVAILABLE = False
     print(f"⚠️  警告: 无法导入noiser模块，噪声功能不可用")
 
+# 导入资源管理器 V2
+try:
+    from carla_resource_manager_v2 import CarlaResourceManagerV2, ResourceState
+    RESOURCE_MANAGER_V2_AVAILABLE = True
+except ImportError:
+    RESOURCE_MANAGER_V2_AVAILABLE = False
+    print(f"⚠️  警告: 无法导入资源管理器V2，使用传统方式管理资源")
+
 
 class BaseDataCollector:
     """数据收集器基类，包含共享功能"""
@@ -193,6 +201,9 @@ class BaseDataCollector:
         self.stuck_speed_threshold = 0.5        # 速度阈值（m/s）
         self.stuck_time_threshold = 5.0         # 卡住时间阈值（秒）
         self._stuck_start_time = None           # 开始卡住的时间
+        
+        # ========== 资源管理器 V2 ==========
+        self._resource_manager = None           # V2 资源管理器实例
     
     def _init_noisers(self, segment_frames=200):
         """初始化噪声器（使用当前参数和帧率）"""
@@ -429,6 +440,54 @@ class BaseDataCollector:
         self.collision_detected = False
         self.collision_history = []
         print("✅ 碰撞传感器设置完成！")
+        return True
+    
+    def create_resources_v2(self, spawn_transform, destination=None):
+        """使用资源管理器 V2 创建所有资源
+        
+        参数:
+            spawn_transform: 车辆生成位置 (carla.Transform)
+            destination: 目的地位置 (carla.Location)，用于配置 BasicAgent
+            
+        返回:
+            bool: 是否成功
+        """
+        if not RESOURCE_MANAGER_V2_AVAILABLE:
+            print("⚠️ 资源管理器 V2 不可用，请使用传统方式")
+            return False
+        
+        # 创建资源管理器
+        self._resource_manager = CarlaResourceManagerV2(
+            self.world, 
+            self.blueprint_library, 
+            self.simulation_fps
+        )
+        
+        # 使用 create_all 一次性创建所有资源
+        if not self._resource_manager.create_all(
+            spawn_transform,
+            lambda img: self._on_camera_update(img),
+            lambda evt: self._on_collision(evt),
+            camera_width=self.camera_raw_width,
+            camera_height=self.camera_raw_height
+        ):
+            self._resource_manager = None
+            return False
+        
+        # 同步引用到 BaseDataCollector
+        self.vehicle = self._resource_manager.vehicle
+        self.camera = self._resource_manager.camera
+        self.collision_sensor = self._resource_manager.collision_sensor
+        self.collision_detected = False
+        self.collision_history = []
+        
+        # 配置导航代理
+        if destination is not None and AGENTS_AVAILABLE:
+            self._setup_basic_agent(spawn_transform, destination)
+        
+        # 重置噪声器
+        self.reset_noisers()
+        
         return True
     
     def _on_collision(self, event):
@@ -951,47 +1010,96 @@ class BaseDataCollector:
         
         return noisy_control
     
-    def wait_for_first_frame(self):
-        """等待第一帧图像"""
+    def wait_for_first_frame(self, timeout=10.0):
+        """等待第一帧图像
+        
+        参数:
+            timeout: 超时时间（秒），默认10秒
+            
+        返回:
+            bool: 是否成功获取到第一帧图像
+        """
         print("等待第一帧图像...")
+        start_time = time.time()
+        tick_count = 0
+        
         while len(self.image_buffer) == 0:
+            # 检查超时
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                print(f"⚠️ 等待第一帧图像超时（{timeout}秒），已尝试 {tick_count} 次tick")
+                return False
+            
             self.step_simulation()
+            tick_count += 1
             time.sleep(0.01)
+            
+            # 每2秒打印一次等待状态
+            if tick_count % 200 == 0:
+                print(f"  ... 仍在等待图像（已等待 {elapsed:.1f}秒，{tick_count} 次tick）")
+        
         print("摄像头就绪！")
+        return True
     
     def cleanup(self):
-        """清理资源"""
+        """清理资源
+        
+        优先使用资源管理器 V2 进行清理，否则使用传统方式。
+        关键：必须先切换到异步模式，再销毁传感器，避免 tick() 死锁
+        """
         print("正在清理资源...")
         
+        # 1. 清理 agent 引用（不涉及 CARLA actor）
         self.agent = None
         
-        if self.collision_sensor is not None:
-            try:
-                self.collision_sensor.stop()
-                self.collision_sensor.destroy()
-            except:
-                pass
+        # 2. 优先使用资源管理器 V2 清理
+        if self._resource_manager is not None:
+            self._resource_manager.destroy_all(restore_original_mode=False)
+            self._resource_manager = None
+            self.vehicle = None
+            self.camera = None
+            self.collision_sensor = None
+        else:
+            # 传统清理方式
+            # 先切换到异步模式（关键！避免 tick() 死锁）
+            if self.world is not None:
+                try:
+                    settings = self.world.get_settings()
+                    settings.synchronous_mode = False
+                    self.world.apply_settings(settings)
+                    time.sleep(0.3)  # 等待模式切换完成
+                except:
+                    pass
+            
+            # 按顺序销毁资源（传感器 -> 车辆）
+            if self.collision_sensor is not None:
+                try:
+                    self.collision_sensor.stop()
+                    self.collision_sensor.destroy()
+                except:
+                    pass
+                self.collision_sensor = None
+            
+            if self.camera is not None:
+                try:
+                    self.camera.stop()
+                    self.camera.destroy()
+                except:
+                    pass
+                self.camera = None
+            
+            if self.vehicle is not None:
+                try:
+                    self.vehicle.destroy()
+                except:
+                    pass
+                self.vehicle = None
+            
+            # 等待 CARLA 服务器处理销毁请求
+            time.sleep(0.5)
         
-        if self.camera is not None:
-            try:
-                self.camera.stop()
-                self.camera.destroy()
-            except:
-                pass
-        
-        if self.vehicle is not None:
-            try:
-                self.vehicle.destroy()
-            except:
-                pass
-        
-        if self.world is not None:
-            try:
-                settings = self.world.get_settings()
-                settings.synchronous_mode = False
-                self.world.apply_settings(settings)
-            except:
-                pass
+        # 3. 清理图像缓冲
+        self.image_buffer.clear()
         
         if self.enable_visualization:
             try:

@@ -645,16 +645,29 @@ class InteractiveDataCollector:
             # 清理资源
             if self.collector:
                 print("\n正在清理车辆和传感器...")
+                
+                # 1. 先清理agent引用（不涉及 CARLA actor）
                 try:
                     if self.collector.agent is not None:
                         self.collector.agent = None
                 except:
                     pass
                 
+                # 2. 关键：先切换到异步模式，避免 tick() 死锁
+                try:
+                    settings = self.world.get_settings()
+                    settings.synchronous_mode = False
+                    self.world.apply_settings(settings)
+                    time.sleep(0.3)  # 等待模式切换完成
+                except:
+                    pass
+                
+                # 3. 按顺序销毁资源（传感器 -> 车辆）
                 try:
                     if self.collector.collision_sensor is not None:
                         self.collector.collision_sensor.stop()
                         self.collector.collision_sensor.destroy()
+                        self.collector.collision_sensor = None
                 except:
                     pass
                 
@@ -662,24 +675,27 @@ class InteractiveDataCollector:
                     if self.collector.camera is not None:
                         self.collector.camera.stop()
                         self.collector.camera.destroy()
+                        self.collector.camera = None
                 except:
                     pass
                     
                 try:
                     if self.collector.vehicle is not None:
                         self.collector.vehicle.destroy()
+                        self.collector.vehicle = None
                 except:
                     pass
                 
-                # 恢复异步模式
+                # 4. 等待 CARLA 服务器处理销毁请求
+                time.sleep(0.5)
+                
+                # 5. 清理图像缓冲
                 try:
-                    settings = self.world.get_settings()
-                    settings.synchronous_mode = False
-                    self.world.apply_settings(settings)
-                    print("✅ 已恢复CARLA异步模式（画面可正常运行）")
+                    self.collector.image_buffer.clear()
                 except:
                     pass
                 
+                print("✅ 已恢复CARLA异步模式（画面可正常运行）")
                 print("✅ 清理完成（保留路径可视化）")
     
     def run(self, num_frames=10000, save_path='./carla_data', visualize=False):

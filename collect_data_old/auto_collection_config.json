@@ -24,14 +24,24 @@
     
     "world_settings": {
         "_comment": "世界环境配置",
-        "spawn_npc_vehicles": false,
+        "spawn_npc_vehicles": true,
         "_comment_spawn_npc_vehicles": "是否生成NPC车辆（false=不生成，场景中只有数据收集车辆；true=生成其他车辆）",
         "num_npc_vehicles": 0,
         "_comment_num_npc_vehicles": "NPC车辆数量（仅在spawn_npc_vehicles=true时有效），推荐值：0-50",
-        "spawn_npc_walkers": false,
+        "spawn_npc_walkers": true,
         "_comment_spawn_npc_walkers": "是否生成NPC行人（false=不生成；true=生成行人）",
-        "num_npc_walkers": 0,
-        "_comment_num_npc_walkers": "NPC行人数量（仅在spawn_npc_walkers=true时有效），推荐值：0-100"
+        "num_npc_walkers": 50,
+        "_comment_num_npc_walkers": "NPC行人数量（仅在spawn_npc_walkers=true时有效），推荐值：0-100",
+        
+        "npc_behavior": {
+            "_comment": "NPC车辆行为配置 - 控制NPC是否遵守交通规则",
+            "ignore_traffic_lights": false,
+            "_comment_ignore_traffic_lights": "NPC车辆是否忽略红绿灯（true=闯红灯，场景更混乱；false=遵守红绿灯）",
+            "ignore_signs": true,
+            "_comment_ignore_signs": "NPC车辆是否忽略停车标志（true=不停车；false=遵守停车标志）",
+            "ignore_walkers": false,
+            "_comment_ignore_walkers": "NPC车辆是否忽略行人（建议false，避免NPC撞人导致场景混乱）"
+        }
     },
     
     "weather_settings": {
@@ -71,7 +81,7 @@
         "_comment_max_distance": "最大路线距离（米，使用实际路径距离），推荐400m避免单条路线过长",
         "target_routes_ratio": 1.0,
         "_comment_target_routes_ratio": "路线选择比例（0-1），从筛选后的路线中选择多少比例，1.0=全选，0.5=选一半",
-        "max_candidates_to_analyze": 10000,
+        "max_candidates_to_analyze": 6000,
         "_comment_max_candidates_to_analyze": "最多分析的候选路线数（0=不限制，分析所有组合），大地图可设为3000-5000加速",
         "overlap_threshold": 0.6,
         "_comment_overlap_threshold": "路径重叠阈值（0-1），超过此值的路线会被去重，推荐0.3-0.5，越低去重越严格",
@@ -83,7 +93,7 @@
         "_comment": "数据收集参数配置",
         "frames_per_route": 10000,
         "_comment_frames_per_route": "每条路线收集的最大帧数，实际可能因到达终点而提前结束",
-        "save_path": "E://carla_data_lastnew",
+        "save_path": "E://datasets",
         "_comment_save_path": "数据保存路径，相对路径或绝对路径均可",
         "auto_save_interval": 200,
         "_comment_auto_save_interval": "自动保存间隔（帧数），每收集N帧自动保存一次",
@@ -208,8 +218,8 @@
             "_comment_enabled": "是否检测卡住（长时间无法移动）",
             "speed_threshold": 0.5,
             "_comment_speed_threshold": "速度阈值（m/s），低于此值视为停止",
-            "time_threshold": 5.0,
-            "_comment_time_threshold": "卡住时间阈值（秒），持续停止超过此时间判定为卡住"
+            "time_threshold": 10.0,
+            "_comment_time_threshold": "卡住时间阈值（秒），持续停止超过此时间判定为卡住，建议10秒以上避免误判"
         }
     },
     

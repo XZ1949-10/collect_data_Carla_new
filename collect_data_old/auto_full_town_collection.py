@@ -29,6 +29,16 @@ try:
 except ImportError:
     pass
 
+# 导入资源管理器 V2
+try:
+    from carla_resource_manager_v2 import CarlaResourceManagerV2, ResourceState, carla_resources
+    RESOURCE_MANAGER_AVAILABLE = True
+    # 向后兼容别名
+    CarlaResourceManager = CarlaResourceManagerV2
+except ImportError:
+    RESOURCE_MANAGER_AVAILABLE = False
+    print("⚠️ 资源管理器V2不可用，使用传统方式管理资源")
+
 
 class AutoFullTownCollector(BaseDataCollector):
     """全自动Town01数据收集器"""
@@ -48,6 +58,11 @@ class AutoFullTownCollector(BaseDataCollector):
         self.spawn_npc_walkers = spawn_npc_walkers
         self.num_npc_walkers = num_npc_walkers
         self.weather_config = weather_config or {}
+        
+        # NPC行为配置（默认不遵守交通规则，让场景更混乱/真实）
+        self.npc_ignore_traffic_lights = True   # NPC车辆是否忽略红绿灯
+        self.npc_ignore_signs = True            # NPC车辆是否忽略停车标志
+        self.npc_ignore_walkers = False         # NPC车辆是否忽略行人（建议False，避免撞人）
         
         # NPC列表
         self.npc_vehicles = []
@@ -238,6 +253,11 @@ class AutoFullTownCollector(BaseDataCollector):
         
         注意：为避免NPC车辆占用数据收集车辆的生成点，
         NPC车辆从生成点列表的后半部分开始生成。
+        
+        NPC车辆的交通规则行为通过 Traffic Manager 控制：
+        - npc_ignore_traffic_lights: 是否忽略红绿灯
+        - npc_ignore_signs: 是否忽略停车标志
+        - npc_ignore_walkers: 是否忽略行人
         """
         print(f"\n🚗 正在生成 {self.num_npc_vehicles} 辆NPC车辆...")
         
@@ -251,6 +271,9 @@ class AutoFullTownCollector(BaseDataCollector):
         npc_spawn_points = spawn_points[half_idx:]
         random.shuffle(npc_spawn_points)
         
+        # 获取 Traffic Manager
+        traffic_manager = self.client.get_trafficmanager()
+        
         for i in range(min(self.num_npc_vehicles, len(npc_spawn_points))):
             bp = random.choice(blueprints)
             if bp.has_attribute('color'):
@@ -258,10 +281,29 @@ class AutoFullTownCollector(BaseDataCollector):
             
             npc = self.world.try_spawn_actor(bp, npc_spawn_points[i])
             if npc:
-                npc.set_autopilot(True)
+                npc.set_autopilot(True, traffic_manager.get_port())
+                
+                # 配置NPC车辆的交通规则行为
+                if self.npc_ignore_traffic_lights:
+                    traffic_manager.ignore_lights_percentage(npc, 100)
+                if self.npc_ignore_signs:
+                    traffic_manager.ignore_signs_percentage(npc, 100)
+                if self.npc_ignore_walkers:
+                    traffic_manager.ignore_walkers_percentage(npc, 100)
+                
                 self.npc_vehicles.append(npc)
         
-        print(f"✅ 成功生成 {len(self.npc_vehicles)} 辆NPC车辆（使用后半部分生成点）")
+        # 打印NPC行为配置
+        behavior_info = []
+        if self.npc_ignore_traffic_lights:
+            behavior_info.append("忽略红绿灯")
+        if self.npc_ignore_signs:
+            behavior_info.append("忽略停车标志")
+        if self.npc_ignore_walkers:
+            behavior_info.append("忽略行人")
+        behavior_str = ", ".join(behavior_info) if behavior_info else "遵守所有规则"
+        
+        print(f"✅ 成功生成 {len(self.npc_vehicles)} 辆NPC车辆（{behavior_str}）")
     
     def _spawn_npc_walkers(self):
         """生成NPC行人"""
@@ -821,11 +863,13 @@ class AutoFullTownCollector(BaseDataCollector):
     def _do_single_collection(self, start_idx, end_idx, save_path, spawn_transform=None):
         """执行单次收集（从创建车辆到销毁）
         
+        使用资源管理器 V2 的 Context Manager 模式，确保资源自动清理。
+        
         这是一个完整的收集周期，包括：
-        1. 创建内部收集器
+        1. 创建内部收集器和资源管理器
         2. 生成车辆和传感器（支持从transform或spawn_index生成）
         3. 收集数据
-        4. 清理所有资源
+        4. 清理所有资源（自动）
         
         参数:
             start_idx: 起点spawn_index（spawn_transform为None时使用）
@@ -836,6 +880,38 @@ class AutoFullTownCollector(BaseDataCollector):
         返回:
             dict: 收集结果
         """
+        result = {'success': False, 'saved_frames': 0, 'need_recovery': False, 'recovery_transform': None}
+        
+        # 使用 Context Manager 模式确保资源自动清理
+        if RESOURCE_MANAGER_AVAILABLE:
+            # V2 资源管理器 - 使用 with 语句自动管理
+            resource_manager = CarlaResourceManagerV2(
+                self.world, 
+                self.blueprint_library, 
+                self.simulation_fps
+            )
+            
+            try:
+                result = self._do_collection_with_manager(
+                    start_idx, end_idx, save_path, spawn_transform, resource_manager
+                )
+            finally:
+                # 确保清理（即使 with 块内部出错）
+                resource_manager.destroy_all(restore_original_mode=True)
+                self._cleanup_inner_collector_refs()
+        else:
+            # 传统方式（无资源管理器）
+            try:
+                result = self._do_collection_with_manager(
+                    start_idx, end_idx, save_path, spawn_transform, None
+                )
+            finally:
+                self._cleanup_inner_collector()
+        
+        return result
+    
+    def _do_collection_with_manager(self, start_idx, end_idx, save_path, spawn_transform, resource_manager):
+        """使用资源管理器执行收集的内部方法"""
         result = {'success': False, 'saved_frames': 0, 'need_recovery': False, 'recovery_transform': None}
         
         try:
@@ -855,32 +931,25 @@ class AutoFullTownCollector(BaseDataCollector):
             self._inner_collector.world = self.world
             self._inner_collector.blueprint_library = self.blueprint_library
             
-            # 设置同步模式
-            settings = self.world.get_settings()
-            if not settings.synchronous_mode:
-                settings.synchronous_mode = True
-                settings.fixed_delta_seconds = 1.0 / self.simulation_fps
-                self.world.apply_settings(settings)
+            # 使用资源管理器确保同步模式
+            if resource_manager:
+                resource_manager.ensure_sync_mode()
+            else:
+                settings = self.world.get_settings()
+                if not settings.synchronous_mode:
+                    settings.synchronous_mode = True
+                    settings.fixed_delta_seconds = 1.0 / self.simulation_fps
+                    self.world.apply_settings(settings)
             
             # 生成车辆（支持从transform或spawn_index生成）
             if spawn_transform is not None:
                 # 碰撞恢复：从指定transform生成车辆
-                if not self._spawn_vehicle_at_transform(spawn_transform, end_idx):
+                if not self._spawn_vehicle_at_transform_v2(spawn_transform, end_idx, resource_manager):
                     return result
             else:
                 # 正常启动：从spawn_index生成车辆
-                if not self._inner_collector.spawn_vehicle(start_idx, end_idx):
+                if not self._spawn_vehicle_v2(start_idx, end_idx, resource_manager):
                     return result
-            
-            # 设置传感器
-            self._inner_collector.setup_camera()
-            self._inner_collector.setup_collision_sensor()
-            
-            # 等待传感器初始化
-            time.sleep(0.5)
-            for _ in range(10):
-                self.world.tick()
-            time.sleep(0.3)
             
             # 配置噪声
             self._inner_collector.configure_noise(
@@ -918,8 +987,177 @@ class AutoFullTownCollector(BaseDataCollector):
             import traceback
             traceback.print_exc()
             return result
-        finally:
-            # 无论如何都要清理资源
+    
+    def _spawn_vehicle_v2(self, start_idx, end_idx, resource_manager=None):
+        """使用资源管理器 V2 生成车辆
+        
+        参数:
+            start_idx: 起点索引
+            end_idx: 终点索引
+            resource_manager: CarlaResourceManagerV2 实例
+            
+        返回:
+            bool: 是否成功
+        """
+        spawn_points = self.world.get_map().get_spawn_points()
+        
+        if start_idx >= len(spawn_points) or end_idx >= len(spawn_points):
+            print(f"❌ 索引超出范围！最大索引: {len(spawn_points)-1}")
+            return False
+        
+        spawn_point = spawn_points[start_idx]
+        destination = spawn_points[end_idx].location
+        
+        if resource_manager:
+            # 使用资源管理器 V2 创建车辆
+            if not resource_manager.create_vehicle(spawn_point):
+                return False
+            
+            # 将车辆引用传递给内部收集器
+            self._inner_collector.vehicle = resource_manager.vehicle
+            
+            # 创建摄像头
+            if not resource_manager.create_camera(
+                lambda img: self._inner_collector._on_camera_update(img),
+                width=self._inner_collector.camera_raw_width,
+                height=self._inner_collector.camera_raw_height
+            ):
+                return False
+            self._inner_collector.camera = resource_manager.camera
+            
+            # 创建碰撞传感器
+            if not resource_manager.create_collision_sensor(
+                lambda evt: self._inner_collector._on_collision(evt)
+            ):
+                return False
+            self._inner_collector.collision_sensor = resource_manager.collision_sensor
+            self._inner_collector.collision_detected = False
+            self._inner_collector.collision_history = []
+            
+            # 等待传感器就绪
+            if not resource_manager.wait_for_sensors():
+                return False
+        else:
+            # 传统方式（无资源管理器）
+            if not self._inner_collector.spawn_vehicle(start_idx, end_idx):
+                return False
+            self._inner_collector.setup_camera()
+            self._inner_collector.setup_collision_sensor()
+            
+            # 等待传感器初始化
+            time.sleep(0.3)
+            for _ in range(10):
+                try:
+                    self.world.tick()
+                    time.sleep(0.05)
+                except:
+                    break
+            time.sleep(0.3)
+            return True
+        
+        # 配置 BasicAgent
+        if AGENTS_AVAILABLE:
+            self._inner_collector._setup_basic_agent(spawn_point, destination)
+        else:
+            self._inner_collector._setup_traffic_manager()
+        
+        self._inner_collector.reset_noisers()
+        return True
+    
+    def _spawn_vehicle_at_transform_v2(self, spawn_transform, destination_idx, resource_manager=None):
+        """使用资源管理器 V2 在指定位置生成车辆（用于碰撞恢复）
+        
+        参数:
+            spawn_transform: 生成位置
+            destination_idx: 终点索引
+            resource_manager: CarlaResourceManagerV2 实例
+            
+        返回:
+            bool: 是否成功
+        """
+        print(f"🚗 在恢复点生成车辆...")
+        
+        destination = self.spawn_points[destination_idx].location
+        
+        # 稍微抬高生成位置，避免与地面碰撞
+        adjusted_transform = carla.Transform(
+            carla.Location(
+                x=spawn_transform.location.x,
+                y=spawn_transform.location.y,
+                z=spawn_transform.location.z + 0.5
+            ),
+            spawn_transform.rotation
+        )
+        
+        if resource_manager:
+            # 使用资源管理器 V2 创建车辆
+            if not resource_manager.create_vehicle(adjusted_transform):
+                return False
+            
+            self._inner_collector.vehicle = resource_manager.vehicle
+            
+            # 创建摄像头
+            if not resource_manager.create_camera(
+                lambda img: self._inner_collector._on_camera_update(img),
+                width=self._inner_collector.camera_raw_width,
+                height=self._inner_collector.camera_raw_height
+            ):
+                return False
+            self._inner_collector.camera = resource_manager.camera
+            
+            # 创建碰撞传感器
+            if not resource_manager.create_collision_sensor(
+                lambda evt: self._inner_collector._on_collision(evt)
+            ):
+                return False
+            self._inner_collector.collision_sensor = resource_manager.collision_sensor
+            self._inner_collector.collision_detected = False
+            self._inner_collector.collision_history = []
+            
+            # 等待传感器就绪
+            if not resource_manager.wait_for_sensors():
+                return False
+        else:
+            # 传统方式
+            return self._spawn_vehicle_at_transform(spawn_transform, destination_idx)
+        
+        # 配置 BasicAgent
+        if AGENTS_AVAILABLE:
+            self._setup_recovery_agent(adjusted_transform, destination)
+        else:
+            self._setup_recovery_traffic_manager()
+        
+        self._inner_collector.reset_noisers()
+        return True
+    
+    def _cleanup_inner_collector_refs(self):
+        """清理内部收集器的引用（不销毁 CARLA 资源，由资源管理器负责）"""
+        if self._inner_collector:
+            try:
+                self._inner_collector.agent = None
+                self._inner_collector.image_buffer.clear()
+            except:
+                pass
+            
+            # 清理引用（资源已由资源管理器销毁）
+            self._inner_collector.vehicle = None
+            self._inner_collector.camera = None
+            self._inner_collector.collision_sensor = None
+            self._inner_collector = None
+    
+    def _cleanup_inner_collector_v2(self, resource_manager=None):
+        """使用资源管理器清理资源（兼容旧代码）
+        
+        注意：新代码应使用 Context Manager 模式，此方法保留用于兼容
+        """
+        if resource_manager:
+            # 先清理 agent 引用
+            self._cleanup_inner_collector_refs()
+            
+            # 使用资源管理器统一清理
+            resource_manager.destroy_all(restore_original_mode=True)
+        else:
+            # 传统方式
             self._cleanup_inner_collector()
     
     def _reset_sync_mode(self):
@@ -945,15 +1183,39 @@ class AutoFullTownCollector(BaseDataCollector):
             print(f"⚠️  重置同步模式失败: {e}")
     
     def _cleanup_inner_collector(self):
-        """清理内部收集器"""
+        """清理内部收集器
+        
+        重要：在同步模式下，必须正确处理资源销毁和tick的时序，
+        否则可能导致新传感器无法正常工作。
+        
+        关键修复：必须先切换到异步模式，再销毁传感器，避免 tick() 死锁。
+        """
         if self._inner_collector:
-            # 先清理agent引用
+            # 1. 先清理agent引用（不涉及 CARLA actor）
             try:
                 self._inner_collector.agent = None
             except:
                 pass
             
-            # 停止并销毁碰撞传感器
+            # 2. 清空image_buffer，防止旧数据干扰
+            try:
+                self._inner_collector.image_buffer.clear()
+            except:
+                pass
+            
+            # 3. 关键：先切换到异步模式，避免 tick() 死锁
+            was_sync = False
+            try:
+                settings = self.world.get_settings()
+                was_sync = settings.synchronous_mode
+                if was_sync:
+                    settings.synchronous_mode = False
+                    self.world.apply_settings(settings)
+                    time.sleep(0.3)  # 等待模式切换完成
+            except Exception as e:
+                print(f"  ⚠️ 切换异步模式失败: {e}")
+            
+            # 4. 按顺序销毁资源（传感器 -> 车辆）
             try:
                 if self._inner_collector.collision_sensor:
                     self._inner_collector.collision_sensor.stop()
@@ -962,7 +1224,6 @@ class AutoFullTownCollector(BaseDataCollector):
             except:
                 pass
             
-            # 停止并销毁摄像头
             try:
                 if self._inner_collector.camera:
                     self._inner_collector.camera.stop()
@@ -971,7 +1232,6 @@ class AutoFullTownCollector(BaseDataCollector):
             except:
                 pass
             
-            # 销毁车辆
             try:
                 if self._inner_collector.vehicle:
                     self._inner_collector.vehicle.destroy()
@@ -981,8 +1241,19 @@ class AutoFullTownCollector(BaseDataCollector):
             
             self._inner_collector = None
             
-            # 等待CARLA处理销毁请求（不要在这里调用tick，因为没有actor监听会导致问题）
-            time.sleep(1.0)
+            # 5. 等待 CARLA 服务器处理销毁请求
+            time.sleep(0.5)
+            
+            # 6. 恢复同步模式（如果之前是同步模式）
+            if was_sync:
+                try:
+                    settings = self.world.get_settings()
+                    settings.synchronous_mode = True
+                    settings.fixed_delta_seconds = 1.0 / self.simulation_fps
+                    self.world.apply_settings(settings)
+                    time.sleep(0.3)
+                except Exception as e:
+                    print(f"  ⚠️ 恢复同步模式失败: {e}")
     
     def _get_recovery_transform(self):
         """
@@ -1224,7 +1495,17 @@ class AutoFullTownCollector(BaseDataCollector):
         }
         
         self._inner_collector.enable_visualization = True
-        self._inner_collector.wait_for_first_frame()
+        
+        # 等待第一帧图像，如果超时则触发恢复
+        if not self._inner_collector.wait_for_first_frame(timeout=15.0):
+            print("❌ 摄像头初始化失败，尝试恢复...")
+            # 尝试获取恢复点
+            if self.collision_recovery_enabled:
+                recovery_transform = self._get_recovery_transform()
+                if recovery_transform is not None:
+                    result['need_recovery'] = True
+                    result['recovery_transform'] = recovery_transform
+            return result
         
         saved_frames = 0
         pending_frames = 0
@@ -1507,7 +1788,8 @@ def load_config(config_path='auto_collection_config.json'):
         'carla_settings': {'host': 'localhost', 'port': 2000, 'town': 'Town01'},
         'traffic_rules': {'ignore_traffic_lights': True, 'ignore_signs': True, 'ignore_vehicles_percentage': 80},
         'world_settings': {'spawn_npc_vehicles': False, 'num_npc_vehicles': 0,
-                          'spawn_npc_walkers': False, 'num_npc_walkers': 0},
+                          'spawn_npc_walkers': False, 'num_npc_walkers': 0,
+                          'npc_behavior': {'ignore_traffic_lights': True, 'ignore_signs': True, 'ignore_walkers': False}},
         'weather_settings': {'preset': 'ClearNoon', 'custom': {}},
         'route_generation': {'strategy': 'smart', 'min_distance': 50.0, 'max_distance': 500.0,
                             'target_routes_ratio': 1.0, 'overlap_threshold': 0.5, 'turn_priority_ratio': 0.7,
@@ -1594,6 +1876,12 @@ def run_single_weather_collection(config, weather_name, base_save_path):
         num_npc_walkers=config['world_settings']['num_npc_walkers'],
         weather_config=config.get('weather_settings', {})
     )
+    
+    # NPC行为配置
+    npc_behavior = config['world_settings'].get('npc_behavior', {})
+    collector.npc_ignore_traffic_lights = npc_behavior.get('ignore_traffic_lights', True)
+    collector.npc_ignore_signs = npc_behavior.get('ignore_signs', True)
+    collector.npc_ignore_walkers = npc_behavior.get('ignore_walkers', False)
     
     collector.min_distance = config['route_generation']['min_distance']
     collector.max_distance = config['route_generation']['max_distance']
@@ -1776,6 +2064,12 @@ def main():
             num_npc_walkers=config['world_settings']['num_npc_walkers'],
             weather_config=config.get('weather_settings', {})
         )
+        
+        # NPC行为配置
+        npc_behavior = config['world_settings'].get('npc_behavior', {})
+        collector.npc_ignore_traffic_lights = npc_behavior.get('ignore_traffic_lights', True)
+        collector.npc_ignore_signs = npc_behavior.get('ignore_signs', True)
+        collector.npc_ignore_walkers = npc_behavior.get('ignore_walkers', False)
         
         collector.min_distance = config['route_generation']['min_distance']
         collector.max_distance = config['route_generation']['max_distance']
