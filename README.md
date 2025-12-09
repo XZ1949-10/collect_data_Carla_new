@@ -38,7 +38,7 @@
 
 使用训练好的 CIL 模型在 CARLA 中进行实时自动驾驶推理：
 
-https://github.com/XZ1949-10/collect_data_Carla_new/issues/1#issuecomment-3630492842
+https://github.com/user-attachments/assets/84c0a3c8-fcc1-49ba-aa3a-576ed7d35160
 
 > 📹 **[点击下载/查看完整视频：模型推理演示](使用训练好的模型进行推理的过程.mp4)**
 
