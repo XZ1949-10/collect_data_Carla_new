@@ -1033,25 +1033,19 @@ class BaseDataCollector:
         2. 对专家控制添加噪声（用于执行）
         3. 执行带噪声的控制，让车辆产生偏离
         4. 标签记录专家动作，模型学习"如何纠正"
+        
+        同步模式最佳实践：
+        - 使用上一帧缓存的 vehicle_list 调用 agent.run_step()
+        - 在 world.tick() 后立即获取新的 vehicle_list 供下一帧使用
+        - 这样避免在 agent.run_step() 中调用 get_actors() 导致阻塞
         """
-        # DEBUG: 添加计数器
-        if not hasattr(self, '_step_debug_count'):
-            self._step_debug_count = 0
-        self._step_debug_count += 1
-        
-        if self._step_debug_count <= 5:
-            print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: 开始")
-        
         if AGENTS_AVAILABLE and self.agent is not None:
-            if self._step_debug_count <= 5:
-                print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: 调用 agent.run_step()...")
+            # 使用缓存的 vehicle_list（首次调用时为 None，agent 内部会处理）
+            cached_vehicles = getattr(self, '_cached_vehicle_list', None)
             
             # 获取专家控制（始终保存，用于标签）
-            expert_control = self.agent.run_step()
+            expert_control = self.agent.run_step(vehicle_list=cached_vehicles)
             self._expert_control = expert_control
-            
-            if self._step_debug_count <= 5:
-                print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: agent.run_step() 完成, steer={expert_control.steer:.3f}")
             
             # 根据噪声配置决定执行哪个控制
             if self.noise_enabled and NOISER_AVAILABLE:
@@ -1060,17 +1054,14 @@ class BaseDataCollector:
                 self.vehicle.apply_control(noisy_control)
             else:
                 self.vehicle.apply_control(expert_control)
-            
-            if self._step_debug_count <= 5:
-                print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: apply_control 完成")
         
-        if self._step_debug_count <= 5:
-            print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: 调用 world.tick()...")
-        
+        # 推进模拟
         self.world.tick()
         
-        if self._step_debug_count <= 5:
-            print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: world.tick() 完成")
+        # tick 后立即缓存 actors（此时世界状态一致，不会阻塞）
+        # 供下一帧的 agent.run_step() 使用
+        if AGENTS_AVAILABLE and self.agent is not None:
+            self._cached_vehicle_list = self.world.get_actors().filter("*vehicle*")
     
     def _apply_noise(self, control, speed_kmh):
         """应用噪声到控制信号

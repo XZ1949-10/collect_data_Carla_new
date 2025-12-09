@@ -19,7 +19,7 @@
         "ignore_signs": true,
         "_comment_ignore_signs": "是否忽略停车标志（true=忽略，车辆不会在STOP标志前停车）",
         "ignore_vehicles_percentage": 0,
-        "_comment_ignore_vehicles_percentage": "忽略其他车辆的阈值（0-100）。BasicAgent模式下：0-50=避让车辆，51-100=忽略车辆。注意：BasicAgent只支持开/关，无法精确控制百分比"
+        "_comment_ignore_vehicles_percentage": "忽略其他车辆的阈值（0-100）。BasicAgent模式下：0-50=避让车辆，51-100=忽略车辆"
     },
     
     "world_settings": {

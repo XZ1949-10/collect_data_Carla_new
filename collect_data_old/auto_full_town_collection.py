@@ -1556,47 +1556,22 @@ class AutoFullTownCollector(BaseDataCollector):
                     result['recovery_transform'] = recovery_transform
             return result
         
-        print("🔍 [DEBUG] wait_for_first_frame 成功，准备进入主循环")
-        print(f"🔍 [DEBUG] frames_per_route={self.frames_per_route}, auto_save_interval={self.auto_save_interval}")
-        print(f"🔍 [DEBUG] agent={self._inner_collector.agent}, vehicle={self._inner_collector.vehicle}")
-        
-        # 重置 step_simulation 的调试计数器
-        self._inner_collector._step_debug_count = 0
-        
         saved_frames = 0
         pending_frames = 0
         segment_data = {'rgb': [], 'targets': []}
         segment_start_cmd = None
         
         try:
-            print("🔍 [DEBUG] 进入主收集循环")
-            loop_count = 0
             while (saved_frames + pending_frames) < self.frames_per_route:
-                loop_count += 1
-                if loop_count <= 5 or loop_count % 100 == 0:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 准备调用 step_simulation()")
-                
                 self._inner_collector.step_simulation()
-                
-                if loop_count <= 10 or loop_count % 100 == 0:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, step_simulation() 完成")
-                
-                if loop_count <= 10:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 检查路线完成状态...")
                 
                 if self._inner_collector._is_route_completed():
                     print(f"\n🎯 已到达目的地！")
                     break
                 
-                if loop_count <= 10:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 检查碰撞和异常...")
-                
                 # === 碰撞和异常检测 ===
                 is_collision = self._inner_collector.collision_detected
                 is_anomaly = self._inner_collector.check_vehicle_anomaly()
-                
-                if loop_count <= 10:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, collision={is_collision}, anomaly={is_anomaly}")
                 
                 if is_collision or is_anomaly:
                     if is_collision:
@@ -1622,30 +1597,18 @@ class AutoFullTownCollector(BaseDataCollector):
                 
                 # === 正常数据收集 ===
                 if len(self._inner_collector.image_buffer) == 0:
-                    if loop_count <= 10:
-                        print(f"🔍 [DEBUG] 循环 #{loop_count}, image_buffer 为空，跳过")
                     continue
-                
-                if loop_count <= 10:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 获取图像和速度...")
                 
                 current_image = self._inner_collector.image_buffer[-1].copy()
                 speed_kmh = self._inner_collector._get_vehicle_speed()
                 current_cmd = self._inner_collector._get_navigation_command()
                 
-                if loop_count <= 10:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, speed={speed_kmh:.1f}, cmd={current_cmd}, img_mean={current_image.mean():.1f}")
-                
                 # 跳过无效帧
                 if current_image.mean() < 5 or speed_kmh > 150:
-                    if loop_count <= 10:
-                        print(f"🔍 [DEBUG] 循环 #{loop_count}, 无效帧，跳过")
                     continue
                 
                 # 再次检查碰撞和异常
                 if self._inner_collector.collision_detected or self._inner_collector.anomaly_detected:
-                    if loop_count <= 10:
-                        print(f"🔍 [DEBUG] 循环 #{loop_count}, 碰撞/异常，跳过")
                     continue
                 
                 targets = self._inner_collector._build_targets(speed_kmh, current_cmd)
@@ -1657,21 +1620,14 @@ class AutoFullTownCollector(BaseDataCollector):
                 segment_data['targets'].append(targets)
                 pending_frames += 1
                 
-                if loop_count <= 10:
-                    print(f"🔍 [DEBUG] 循环 #{loop_count}, pending_frames={pending_frames}")
-                
                 # 可视化
                 if self._inner_collector.enable_visualization:
-                    if loop_count <= 10:
-                        print(f"🔍 [DEBUG] 循环 #{loop_count}, 准备调用 _visualize_frame()...")
                     self._inner_collector.segment_count = pending_frames
                     total_progress = saved_frames + pending_frames
                     self._inner_collector._visualize_frame(
                         current_image, speed_kmh, current_cmd,
                         total_progress, self.frames_per_route, is_collecting=True
                     )
-                    if loop_count <= 10:
-                        print(f"🔍 [DEBUG] 循环 #{loop_count}, _visualize_frame() 完成")
                 
                 # 定期保存
                 if pending_frames >= self.auto_save_interval:

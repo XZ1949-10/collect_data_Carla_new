@@ -194,12 +194,19 @@ class BasicAgent:
         end_location = end_waypoint.transform.location
         return self._global_planner.trace_route(start_location, end_location)
 
-    def run_step(self):
-        """Execute one step of navigation."""
+    def run_step(self, vehicle_list=None):
+        """Execute one step of navigation.
+        
+        :param vehicle_list: (optional) pre-fetched list of vehicles from world.get_actors().
+                            If None, will fetch internally (may block in sync mode).
+                            For best performance in sync mode, pass the vehicle list
+                            obtained right after world.tick().
+        """
         hazard_detected = False
 
-        # Retrieve all relevant actors
-        vehicle_list = self._world.get_actors().filter("*vehicle*")
+        # Use provided vehicle_list or fetch if not provided
+        if vehicle_list is None and not self._ignore_vehicles:
+            vehicle_list = self._world.get_actors().filter("*vehicle*")
 
         vehicle_speed = get_speed(self._vehicle) / 3.6
 
