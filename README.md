@@ -46,7 +46,7 @@ https://github.com/XZ1949-10/collect_data_Carla_new/issues/1#issuecomment-363049
 
 DAgger 风格噪声注入后的数据收集过程，展示车辆偏离-恢复行为：
 
-https://github.com/XZ1949-10/collect_data_Carla_new/issues/1#issuecomment-3630496953
+https://github.com/user-attachments/assets/2b613e98-06e3-4367-8ff4-cc6aa3442a33
 
 > 📹 **[点击下载/查看完整视频：噪声注入演示](加噪之后示例视频HD.mp4)**
 
