@@ -1,7 +1,7 @@
 # CARLA-CIL: End-to-End Autonomous Driving via Conditional Imitation Learning
 
 <p align="center">
-  <img src="collect_data_old/可视化界面的显示示例.png" alt="Visualization Interface" width="800"/>
+  <img src="carla_0.9.16.png" alt="Visualization Interface" width="800"/>
 </p>
 
 <p align="center">
@@ -50,7 +50,7 @@ https://github.com/user-attachments/assets/2b613e98-06e3-4367-8ff4-cc6aa3442a33
 
 > 📹 **[点击下载/查看完整视频：噪声注入演示](加噪之后示例视频HD.mp4)**
 
-### 可视化界面
+### 收集可视化界面介绍
 
 <p align="center">
   <img src="collect_data_old/可视化界面的显示示例.png" alt="Data Collection Visualization" width="800"/>
