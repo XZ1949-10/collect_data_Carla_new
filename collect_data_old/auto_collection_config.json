@@ -1,0 +1,235 @@
+{
+    "_comment_file": "全自动Town01数据收集器配置文件",
+    "_comment_usage": "修改此文件可以自定义收集参数，无需修改代码",
+    
+    "carla_settings": {
+        "_comment": "CARLA服务器连接设置",
+        "host": "localhost",
+        "_comment_host": "CARLA服务器地址，本地运行使用localhost",
+        "port": 2000,
+        "_comment_port": "CARLA服务器端口，默认2000",
+        "town": "Town01",
+        "_comment_town": "地图名称，可选：Town01-Town10"
+    },
+    
+    "traffic_rules": {
+        "_comment": "交通规则配置，控制车辆行为",
+        "ignore_traffic_lights": true,
+        "_comment_ignore_traffic_lights": "是否忽略红绿灯（true=忽略，车辆不会在红灯前停车）",
+        "ignore_signs": true,
+        "_comment_ignore_signs": "是否忽略停车标志（true=忽略，车辆不会在STOP标志前停车）",
+        "ignore_vehicles_percentage": 0,
+        "_comment_ignore_vehicles_percentage": "忽略其他车辆的阈值（0-100）。BasicAgent模式下：0-50=避让车辆，51-100=忽略车辆。注意：BasicAgent只支持开/关，无法精确控制百分比"
+    },
+    
+    "world_settings": {
+        "_comment": "世界环境配置",
+        "spawn_npc_vehicles": false,
+        "_comment_spawn_npc_vehicles": "是否生成NPC车辆（false=不生成，场景中只有数据收集车辆；true=生成其他车辆）",
+        "num_npc_vehicles": 0,
+        "_comment_num_npc_vehicles": "NPC车辆数量（仅在spawn_npc_vehicles=true时有效），推荐值：0-50",
+        "spawn_npc_walkers": false,
+        "_comment_spawn_npc_walkers": "是否生成NPC行人（false=不生成；true=生成行人）",
+        "num_npc_walkers": 0,
+        "_comment_num_npc_walkers": "NPC行人数量（仅在spawn_npc_walkers=true时有效），推荐值：0-100"
+    },
+    
+    "weather_settings": {
+        "_comment": "天气配置 - 所有值范围0.0-100.0（百分比）",
+        "preset": "CloudyNoon",
+        "_comment_preset": "天气预设：ClearNoon, CloudyNoon, WetNoon, WetCloudyNoon, SoftRainNoon, MidRainyNoon, HardRainNoon, ClearSunset, CloudySunset, WetSunset, WetCloudySunset, SoftRainSunset, MidRainSunset, HardRainSunset, ClearNight, CloudyNight, WetNight, WetCloudyNight, SoftRainNight, MidRainyNight, HardRainNight, DustStorm（设为null使用自定义参数）",
+        "custom": {
+            "_comment": "自定义天气参数（仅当preset=null时生效）",
+            "cloudiness": 0.0,
+            "_comment_cloudiness": "云量 0-100",
+            "precipitation": 0.0,
+            "_comment_precipitation": "降水量 0-100",
+            "precipitation_deposits": 0.0,
+            "_comment_precipitation_deposits": "地面积水 0-100",
+            "wind_intensity": 0.0,
+            "_comment_wind_intensity": "风力强度 0-100",
+            "sun_azimuth_angle": 0.0,
+            "_comment_sun_azimuth_angle": "太阳方位角 0-360",
+            "sun_altitude_angle": 75.0,
+            "_comment_sun_altitude_angle": "太阳高度角 -90到90（负值=夜晚）",
+            "fog_density": 0.0,
+            "_comment_fog_density": "雾密度 0-100",
+            "fog_distance": 0.0,
+            "_comment_fog_distance": "雾起始距离（米）",
+            "wetness": 0.0,
+            "_comment_wetness": "地面湿度 0-100"
+        }
+    },
+    
+    "route_generation": {
+        "_comment": "路线生成策略配置",
+        "strategy": "smart",
+        "_comment_strategy": "路线生成策略：smart=智能选择（命令平衡+路径去重），exhaustive=穷举所有组合",
+        "min_distance": 150.0,
+        "_comment_min_distance": "最小路线距离（米，使用实际路径距离），推荐100m以上确保有足够数据",
+        "max_distance": 400.0,
+        "_comment_max_distance": "最大路线距离（米，使用实际路径距离），推荐400m避免单条路线过长",
+        "target_routes_ratio": 1.0,
+        "_comment_target_routes_ratio": "路线选择比例（0-1），从筛选后的路线中选择多少比例，1.0=全选，0.5=选一半",
+        "max_candidates_to_analyze": 10000,
+        "_comment_max_candidates_to_analyze": "最多分析的候选路线数（0=不限制，分析所有组合），大地图可设为3000-5000加速",
+        "overlap_threshold": 0.6,
+        "_comment_overlap_threshold": "路径重叠阈值（0-1），超过此值的路线会被去重，推荐0.3-0.5，越低去重越严格",
+        "turn_priority_ratio": 0.7,
+        "_comment_turn_priority_ratio": "转弯路线占比（0-1），0.7表示70%的路线包含转弯，30%是纯直行路线，推荐0.6-0.8"
+    },
+    
+    "collection_settings": {
+        "_comment": "数据收集参数配置",
+        "frames_per_route": 10000,
+        "_comment_frames_per_route": "每条路线收集的最大帧数，实际可能因到达终点而提前结束",
+        "save_path": "E://carla_data_lastnew",
+        "_comment_save_path": "数据保存路径，相对路径或绝对路径均可",
+        "auto_save_interval": 200,
+        "_comment_auto_save_interval": "自动保存间隔（帧数），每收集N帧自动保存一次",
+        "simulation_fps": 20,
+        "_comment_simulation_fps": "模拟帧率（FPS），推荐值：10-30，值越高数据越密集但性能要求越高",
+        "target_speed_kmh": 20.0,
+        "_comment_target_speed_kmh": "车辆目标速度（km/h），推荐值：5-8，速度越低转弯越稳定（防止冲上马路牙子）"
+    },
+    
+    "multi_weather_settings": {
+        "_comment": "多天气轮换收集配置",
+        "enabled": false,
+        "_comment_enabled": "是否启用多天气轮换（true=启用，每个天气收集完后自动切换下一个）",
+        "weather_preset": "full",
+        "_comment_weather_preset": "天气组合预设：all_noon/all_sunset/all_night/clear_all/rain_all/basic/full",
+        "custom_weather_list": [],
+        "_comment_custom_weather_list": "自定义天气列表（优先于preset），如：[\"ClearNoon\", \"CloudyNoon\", \"WetNoon\"]",
+        "_available_presets": {
+            "all_noon": "所有正午天气（5种）",
+            "all_sunset": "所有日落天气（5种）",
+            "all_night": "所有夜晚天气（5种）",
+            "clear_all": "所有晴朗天气（3种）",
+            "rain_all": "所有雨天（5种）",
+            "basic": "基础组合（4种）：晴朗正午、多云正午、晴朗日落、晴朗夜晚",
+            "full": "完整组合（11种）：覆盖主要天气场景"
+        }
+    },
+    
+    "noise_settings": {
+        "_comment": "噪声注入配置（DAgger风格模仿学习）",
+        "enabled": true,
+        "_comment_enabled": "是否启用噪声注入",
+        "lateral_noise": true,
+        "_comment_lateral_noise": "是否启用横向噪声（转向）",
+        "longitudinal_noise": true,
+        "_comment_longitudinal_noise": "是否启用纵向噪声（油门/刹车）",
+        
+        "noise_ratio": 0.7,
+        "_comment_noise_ratio": "噪声帧占比（0-1），0.4=200帧中约80帧有噪声",
+        
+        "max_steer_offset": 0.5,
+        "_comment_max_steer_offset": "最大转向偏移量（0-1），0.35=方向盘最多偏35%",
+        
+        "max_throttle_offset": 0.4,
+        "_comment_max_throttle_offset": "最大油门/刹车偏移量（0-1），0.2=油门最多变化20%",
+        
+        "noise_modes": {
+            "_comment": "噪声模式配置 - 按probability_percent加权随机选择",
+            "impulse": {
+                "_comment": "短促脉冲：快速上升快速下降",
+                "noise_frames": [50, 80],
+                "_comment_noise_frames": "噪声阶段帧数范围 [最小, 最大]",
+                "decay_frames": [20, 30],
+                "_comment_decay_frames": "衰减阶段帧数范围 [最小, 最大]",
+                "idle_frames": [5, 15],
+                "_comment_idle_frames": "空闲阶段帧数范围 [最小, 最大]",
+                "strength_percent": 100,
+                "probability_percent": 25
+            },
+            "smooth": {
+                "_comment": "平滑偏移：缓入缓出",
+                "noise_frames": [50, 75],
+                "decay_frames": [20, 30],
+                "idle_frames": [5, 15],
+                "strength_percent": 100,
+                "probability_percent": 35
+            },
+            "drift": {
+                "_comment": "缓慢漂移：正弦波形",
+                "noise_frames": [50, 105],
+                "decay_frames": [20, 30],
+                "idle_frames": [5, 15],
+                "strength_percent": 100,
+                "probability_percent": 20
+            },
+            "jitter": {
+                "_comment": "高频抖动：随机序列",
+                "noise_frames": [50, 100],
+                "decay_frames": [20, 30],
+                "idle_frames": [5, 15],
+                "strength_percent": 100,
+                "probability_percent": 20
+            }
+        }
+    },
+    
+    "collision_recovery": {
+        "_comment": "碰撞恢复配置 - 碰撞后从路线waypoints中找恢复点继续收集",
+        "enabled": true,
+        "_comment_enabled": "是否启用碰撞恢复（true=碰撞后从恢复点重新开始收集，false=碰撞后放弃整条路线）",
+        "_comment_recovery_logic": "碰撞时丢弃当前segment，从当前路线的waypoints中找一个恢复点（跳过碰撞区域），在该位置重新生成车辆继续沿原路线行驶",
+        "max_collisions_per_route": 99,
+        "_comment_max_collisions_per_route": "单条路线最大允许碰撞次数，超过则放弃该路线（99=基本不限制）",
+        "min_distance_to_destination": 30.0,
+        "_comment_min_distance_to_destination": "距离终点小于此距离时不再恢复（米），直接结束路线",
+        "recovery_skip_distance": 25.0,
+        "_comment_recovery_skip_distance": "恢复时沿路线向前跳过的距离（米），用于跳过碰撞区域"
+    },
+    
+    "anomaly_detection": {
+        "_comment": "异常行为检测配置 - 检测打转、翻车、卡住等异常",
+        "enabled": true,
+        "_comment_enabled": "是否启用异常检测（true=检测到异常时和碰撞一样处理）",
+        "spin_detection": {
+            "enabled": true,
+            "_comment_enabled": "是否检测打转（车辆原地旋转）",
+            "threshold_degrees": 270.0,
+            "_comment_threshold_degrees": "累计旋转角度阈值（度），超过此值判定为打转",
+            "time_window": 3.0,
+            "_comment_time_window": "检测时间窗口（秒），在此时间内累计旋转角度"
+        },
+        "rollover_detection": {
+            "enabled": true,
+            "_comment_enabled": "是否检测翻车",
+            "pitch_threshold": 45.0,
+            "_comment_pitch_threshold": "俯仰角阈值（度），超过此值判定为翻车",
+            "roll_threshold": 45.0,
+            "_comment_roll_threshold": "横滚角阈值（度），超过此值判定为翻车"
+        },
+        "stuck_detection": {
+            "enabled": true,
+            "_comment_enabled": "是否检测卡住（长时间无法移动）",
+            "speed_threshold": 0.5,
+            "_comment_speed_threshold": "速度阈值（m/s），低于此值视为停止",
+            "time_threshold": 5.0,
+            "_comment_time_threshold": "卡住时间阈值（秒），持续停止超过此时间判定为卡住"
+        }
+    },
+    
+    "advanced_settings": {
+        "_comment": "高级设置，一般不需要修改",
+        "enable_route_validation": true,
+        "_comment_enable_route_validation": "是否启用路线验证（true=验证路线可达性，false=跳过验证）",
+        "retry_failed_routes": true,
+        "_comment_retry_failed_routes": "是否重试失败的路线（true=重试，false=跳过），建议开启以应对偶发超时",
+        "max_retries": 2,
+        "_comment_max_retries": "最大重试次数，建议2-3次",
+        "pause_between_routes": 3,
+        "_comment_pause_between_routes": "路线之间的暂停时间（秒），用于清理资源，建议3-5秒避免超时"
+    },
+    
+    "_comment_tips": "使用建议",
+    "_tips": [
+        "快速测试：frames_per_route=200, min_distance=100, max_distance=300",
+        "标准收集：frames_per_route=1000, min_distance=50, max_distance=500",
+        "完整收集：strategy=exhaustive（需要很长时间！）",
+        "磁盘空间：每1000帧约50MB，请确保有足够空间"
+    ]
+}
