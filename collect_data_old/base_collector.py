@@ -66,6 +66,14 @@ except ImportError:
     RESOURCE_MANAGER_V2_AVAILABLE = False
     print(f"⚠️  警告: 无法导入资源管理器V2，使用传统方式管理资源")
 
+# 导入异常检测器
+try:
+    from anomaly_detector import AnomalyDetector, AnomalyType, AnomalyConfig
+    ANOMALY_DETECTOR_AVAILABLE = True
+except ImportError:
+    ANOMALY_DETECTOR_AVAILABLE = False
+    print(f"⚠️  警告: 无法导入异常检测器模块，使用内置检测逻辑")
+
 
 class BaseDataCollector:
     """数据收集器基类，包含共享功能"""
@@ -181,25 +189,26 @@ class BaseDataCollector:
         self.collision_history = []  # 记录碰撞历史
         
         # ========== 异常行为检测配置 ==========
-        self.anomaly_detected = False           # 是否检测到异常行为
-        self.anomaly_type = None                # 异常类型: 'spin', 'rollover', 'stuck'
-        self.anomaly_detection_enabled = True   # 是否启用异常检测
+        # 使用独立的异常检测器模块
+        if ANOMALY_DETECTOR_AVAILABLE:
+            self._anomaly_detector = AnomalyDetector()
+        else:
+            self._anomaly_detector = None
         
-        # 打转检测参数
+        # 兼容属性（通过检测器访问）
+        self.anomaly_detection_enabled = True   # 是否启用异常检测
         self.spin_detection_enabled = True      # 是否检测打转
         self.spin_threshold_degrees = 270.0     # 累计旋转角度阈值（度）
         self.spin_time_window = 3.0             # 检测时间窗口（秒）
-        self._yaw_history = []                  # 航向角历史 [(timestamp, yaw), ...]
-        
-        # 翻车检测参数
         self.rollover_detection_enabled = True  # 是否检测翻车
         self.rollover_pitch_threshold = 45.0    # 俯仰角阈值（度）
         self.rollover_roll_threshold = 45.0     # 横滚角阈值（度）
-        
-        # 卡住检测参数
         self.stuck_detection_enabled = True     # 是否检测卡住
         self.stuck_speed_threshold = 0.5        # 速度阈值（m/s）
         self.stuck_time_threshold = 5.0         # 卡住时间阈值（秒）
+        
+        # 内置检测器的状态（仅在独立模块不可用时使用）
+        self._yaw_history = []                  # 航向角历史 [(timestamp, yaw), ...]
         self._stuck_start_time = None           # 开始卡住的时间
         
         # ========== 资源管理器 V2 ==========
@@ -514,10 +523,48 @@ class BaseDataCollector:
     
     def reset_anomaly_state(self):
         """重置异常状态（在新segment开始时调用）"""
-        self.anomaly_detected = False
-        self.anomaly_type = None
-        self._yaw_history = []
-        self._stuck_start_time = None
+        if ANOMALY_DETECTOR_AVAILABLE and self._anomaly_detector:
+            self._anomaly_detector.reset()
+        else:
+            # 内置检测器状态重置
+            self._yaw_history = []
+            self._stuck_start_time = None
+    
+    @property
+    def anomaly_detected(self) -> bool:
+        """是否检测到异常（兼容属性）"""
+        if ANOMALY_DETECTOR_AVAILABLE and self._anomaly_detector:
+            return self._anomaly_detector.anomaly_detected
+        return getattr(self, '_anomaly_detected_internal', False)
+    
+    @anomaly_detected.setter
+    def anomaly_detected(self, value: bool):
+        """设置异常检测状态"""
+        if ANOMALY_DETECTOR_AVAILABLE and self._anomaly_detector:
+            self._anomaly_detector._anomaly_detected = value
+        else:
+            self._anomaly_detected_internal = value
+    
+    @property
+    def anomaly_type(self):
+        """异常类型（兼容属性）"""
+        if ANOMALY_DETECTOR_AVAILABLE and self._anomaly_detector:
+            atype = self._anomaly_detector.anomaly_type
+            # 转换为字符串以保持兼容
+            type_map = {
+                AnomalyType.NONE: None,
+                AnomalyType.SPIN: 'spin',
+                AnomalyType.ROLLOVER: 'rollover',
+                AnomalyType.STUCK: 'stuck'
+            }
+            return type_map.get(atype, None)
+        return getattr(self, '_anomaly_type_internal', None)
+    
+    @anomaly_type.setter
+    def anomaly_type(self, value):
+        """设置异常类型"""
+        if not ANOMALY_DETECTOR_AVAILABLE or not self._anomaly_detector:
+            self._anomaly_type_internal = value
     
     def check_vehicle_anomaly(self):
         """检测车辆异常行为
@@ -533,7 +580,16 @@ class BaseDataCollector:
         if not self.anomaly_detection_enabled or self.vehicle is None:
             return False
         
-        if self.anomaly_detected:
+        # 使用独立的异常检测器模块
+        if ANOMALY_DETECTOR_AVAILABLE and self._anomaly_detector:
+            return self._anomaly_detector.check(self.vehicle)
+        
+        # 降级：使用内置检测逻辑
+        return self._check_vehicle_anomaly_internal()
+    
+    def _check_vehicle_anomaly_internal(self):
+        """内置异常检测逻辑（当独立模块不可用时使用）"""
+        if getattr(self, '_anomaly_detected_internal', False):
             return True
         
         current_time = time.time()
@@ -546,8 +602,8 @@ class BaseDataCollector:
             pitch = abs(transform.rotation.pitch)
             roll = abs(transform.rotation.roll)
             if pitch > self.rollover_pitch_threshold or roll > self.rollover_roll_threshold:
-                self.anomaly_detected = True
-                self.anomaly_type = 'rollover'
+                self._anomaly_detected_internal = True
+                self._anomaly_type_internal = 'rollover'
                 print(f"🔄 检测到翻车！俯仰角: {pitch:.1f}°, 横滚角: {roll:.1f}°")
                 return True
         
@@ -556,17 +612,14 @@ class BaseDataCollector:
             yaw = transform.rotation.yaw
             self._yaw_history.append((current_time, yaw))
             
-            # 清理过期数据
             cutoff_time = current_time - self.spin_time_window
             self._yaw_history = [(t, y) for t, y in self._yaw_history if t >= cutoff_time]
             
-            # 计算累计旋转角度
             if len(self._yaw_history) >= 2:
                 total_rotation = 0.0
                 for i in range(1, len(self._yaw_history)):
                     prev_yaw = self._yaw_history[i-1][1]
                     curr_yaw = self._yaw_history[i][1]
-                    # 处理角度跨越 -180/180 的情况
                     delta = curr_yaw - prev_yaw
                     if delta > 180:
                         delta -= 360
@@ -575,8 +628,8 @@ class BaseDataCollector:
                     total_rotation += abs(delta)
                 
                 if total_rotation > self.spin_threshold_degrees:
-                    self.anomaly_detected = True
-                    self.anomaly_type = 'spin'
+                    self._anomaly_detected_internal = True
+                    self._anomaly_type_internal = 'spin'
                     print(f"🌀 检测到打转！{self.spin_time_window:.1f}秒内旋转 {total_rotation:.1f}°")
                     return True
         
@@ -586,8 +639,8 @@ class BaseDataCollector:
                 if self._stuck_start_time is None:
                     self._stuck_start_time = current_time
                 elif current_time - self._stuck_start_time > self.stuck_time_threshold:
-                    self.anomaly_detected = True
-                    self.anomaly_type = 'stuck'
+                    self._anomaly_detected_internal = True
+                    self._anomaly_type_internal = 'stuck'
                     print(f"⏸️ 检测到卡住！速度 {speed:.2f} m/s 持续 {self.stuck_time_threshold:.1f}秒")
                     return True
             else:
@@ -599,6 +652,7 @@ class BaseDataCollector:
                                      stuck_enabled=None, spin_threshold=None, spin_time_window=None,
                                      rollover_pitch=None, rollover_roll=None, stuck_speed=None, stuck_time=None):
         """配置异常检测参数"""
+        # 更新本地配置（用于内置检测器）
         if enabled is not None:
             self.anomaly_detection_enabled = enabled
         if spin_enabled is not None:
@@ -619,6 +673,21 @@ class BaseDataCollector:
             self.stuck_speed_threshold = stuck_speed
         if stuck_time is not None:
             self.stuck_time_threshold = stuck_time
+        
+        # 同步到独立检测器模块
+        if ANOMALY_DETECTOR_AVAILABLE and self._anomaly_detector:
+            self._anomaly_detector.configure(
+                enabled=self.anomaly_detection_enabled,
+                spin_enabled=self.spin_detection_enabled,
+                spin_threshold=self.spin_threshold_degrees,
+                spin_time_window=self.spin_time_window,
+                rollover_enabled=self.rollover_detection_enabled,
+                rollover_pitch=self.rollover_pitch_threshold,
+                rollover_roll=self.rollover_roll_threshold,
+                stuck_enabled=self.stuck_detection_enabled,
+                stuck_speed=self.stuck_speed_threshold,
+                stuck_time=self.stuck_time_threshold
+            )
     
     def _on_camera_update(self, image):
         """摄像头回调"""
@@ -965,10 +1034,24 @@ class BaseDataCollector:
         3. 执行带噪声的控制，让车辆产生偏离
         4. 标签记录专家动作，模型学习"如何纠正"
         """
+        # DEBUG: 添加计数器
+        if not hasattr(self, '_step_debug_count'):
+            self._step_debug_count = 0
+        self._step_debug_count += 1
+        
+        if self._step_debug_count <= 5:
+            print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: 开始")
+        
         if AGENTS_AVAILABLE and self.agent is not None:
+            if self._step_debug_count <= 5:
+                print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: 调用 agent.run_step()...")
+            
             # 获取专家控制（始终保存，用于标签）
             expert_control = self.agent.run_step()
             self._expert_control = expert_control
+            
+            if self._step_debug_count <= 5:
+                print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: agent.run_step() 完成, steer={expert_control.steer:.3f}")
             
             # 根据噪声配置决定执行哪个控制
             if self.noise_enabled and NOISER_AVAILABLE:
@@ -977,8 +1060,17 @@ class BaseDataCollector:
                 self.vehicle.apply_control(noisy_control)
             else:
                 self.vehicle.apply_control(expert_control)
+            
+            if self._step_debug_count <= 5:
+                print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: apply_control 完成")
+        
+        if self._step_debug_count <= 5:
+            print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: 调用 world.tick()...")
         
         self.world.tick()
+        
+        if self._step_debug_count <= 5:
+            print(f"🔍 [DEBUG] step_simulation #{self._step_debug_count}: world.tick() 完成")
     
     def _apply_noise(self, control, speed_kmh):
         """应用噪声到控制信号

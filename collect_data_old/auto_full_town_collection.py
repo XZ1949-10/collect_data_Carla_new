@@ -39,6 +39,14 @@ except ImportError:
     RESOURCE_MANAGER_AVAILABLE = False
     print("⚠️ 资源管理器V2不可用，使用传统方式管理资源")
 
+# 导入 NPC 管理器
+try:
+    from carla_npc_manager import NPCManager, NPCConfig
+    NPC_MANAGER_AVAILABLE = True
+except ImportError:
+    NPC_MANAGER_AVAILABLE = False
+    print("⚠️ NPC管理器不可用，使用内置NPC管理逻辑")
+
 
 class AutoFullTownCollector(BaseDataCollector):
     """全自动Town01数据收集器"""
@@ -64,10 +72,13 @@ class AutoFullTownCollector(BaseDataCollector):
         self.npc_ignore_signs = True            # NPC车辆是否忽略停车标志
         self.npc_ignore_walkers = False         # NPC车辆是否忽略行人（建议False，避免撞人）
         
-        # NPC列表
+        # NPC列表（兼容属性，实际由 NPC 管理器管理）
         self.npc_vehicles = []
         self.npc_walkers = []
         self.walker_controllers = []
+        
+        # NPC 管理器（使用独立模块）
+        self._npc_manager = None
         
         # 路线规划
         self.spawn_points = []
@@ -251,27 +262,40 @@ class AutoFullTownCollector(BaseDataCollector):
     def _spawn_npc_vehicles(self):
         """生成NPC车辆
         
-        注意：为避免NPC车辆占用数据收集车辆的生成点，
-        NPC车辆从生成点列表的后半部分开始生成。
-        
-        NPC车辆的交通规则行为通过 Traffic Manager 控制：
-        - npc_ignore_traffic_lights: 是否忽略红绿灯
-        - npc_ignore_signs: 是否忽略停车标志
-        - npc_ignore_walkers: 是否忽略行人
+        使用独立的 NPC 管理器模块，如果不可用则降级使用内置逻辑。
         """
+        if NPC_MANAGER_AVAILABLE:
+            self._spawn_npc_vehicles_v2()
+        else:
+            self._spawn_npc_vehicles_internal()
+    
+    def _spawn_npc_vehicles_v2(self):
+        """使用 NPC 管理器生成车辆"""
+        if self._npc_manager is None:
+            self._npc_manager = NPCManager(self.client, self.world, self.blueprint_library)
+        
+        self._npc_manager.spawn_vehicles(
+            num=self.num_npc_vehicles,
+            ignore_lights=self.npc_ignore_traffic_lights,
+            ignore_signs=self.npc_ignore_signs,
+            ignore_walkers=self.npc_ignore_walkers
+        )
+        
+        # 同步到兼容属性
+        self.npc_vehicles = self._npc_manager.vehicles
+    
+    def _spawn_npc_vehicles_internal(self):
+        """内置 NPC 车辆生成逻辑（降级方案）"""
         print(f"\n🚗 正在生成 {self.num_npc_vehicles} 辆NPC车辆...")
         
         blueprints = [x for x in self.blueprint_library.filter('vehicle.*')
                       if int(x.get_attribute('number_of_wheels')) == 4]
         spawn_points = self.world.get_map().get_spawn_points()
         
-        # 从后半部分生成点开始，避免占用常用的起点/终点
-        # 保留前半部分给数据收集车辆使用
         half_idx = len(spawn_points) // 2
         npc_spawn_points = spawn_points[half_idx:]
         random.shuffle(npc_spawn_points)
         
-        # 获取 Traffic Manager
         traffic_manager = self.client.get_trafficmanager()
         
         for i in range(min(self.num_npc_vehicles, len(npc_spawn_points))):
@@ -283,7 +307,6 @@ class AutoFullTownCollector(BaseDataCollector):
             if npc:
                 npc.set_autopilot(True, traffic_manager.get_port())
                 
-                # 配置NPC车辆的交通规则行为
                 if self.npc_ignore_traffic_lights:
                     traffic_manager.ignore_lights_percentage(npc, 100)
                 if self.npc_ignore_signs:
@@ -293,7 +316,6 @@ class AutoFullTownCollector(BaseDataCollector):
                 
                 self.npc_vehicles.append(npc)
         
-        # 打印NPC行为配置
         behavior_info = []
         if self.npc_ignore_traffic_lights:
             behavior_info.append("忽略红绿灯")
@@ -307,6 +329,24 @@ class AutoFullTownCollector(BaseDataCollector):
     
     def _spawn_npc_walkers(self):
         """生成NPC行人"""
+        if NPC_MANAGER_AVAILABLE:
+            self._spawn_npc_walkers_v2()
+        else:
+            self._spawn_npc_walkers_internal()
+    
+    def _spawn_npc_walkers_v2(self):
+        """使用 NPC 管理器生成行人"""
+        if self._npc_manager is None:
+            self._npc_manager = NPCManager(self.client, self.world, self.blueprint_library)
+        
+        self._npc_manager.spawn_walkers(num=self.num_npc_walkers)
+        
+        # 同步到兼容属性
+        self.npc_walkers = self._npc_manager.walkers
+        self.walker_controllers = self._npc_manager._walker_controllers
+    
+    def _spawn_npc_walkers_internal(self):
+        """内置 NPC 行人生成逻辑（降级方案）"""
         print(f"\n🚶 正在生成 {self.num_npc_walkers} 个NPC行人...")
         
         walker_bps = self.blueprint_library.filter('walker.pedestrian.*')
@@ -337,6 +377,19 @@ class AutoFullTownCollector(BaseDataCollector):
     
     def _cleanup_npcs(self):
         """清理NPC"""
+        if NPC_MANAGER_AVAILABLE and self._npc_manager is not None:
+            self._npc_manager.cleanup_all()
+            self._npc_manager = None
+        else:
+            self._cleanup_npcs_internal()
+        
+        # 清空兼容属性
+        self.npc_vehicles = []
+        self.npc_walkers = []
+        self.walker_controllers = []
+    
+    def _cleanup_npcs_internal(self):
+        """内置 NPC 清理逻辑（降级方案）"""
         for ctrl_id in self.walker_controllers:
             try:
                 ctrl = self.world.get_actor(ctrl_id)
@@ -357,10 +410,6 @@ class AutoFullTownCollector(BaseDataCollector):
                 vehicle.destroy()
             except:
                 pass
-        
-        self.npc_vehicles = []
-        self.npc_walkers = []
-        self.walker_controllers = []
     
     def generate_route_pairs(self, cache_path=None):
         """生成路线对（支持缓存）
@@ -1507,22 +1556,47 @@ class AutoFullTownCollector(BaseDataCollector):
                     result['recovery_transform'] = recovery_transform
             return result
         
+        print("🔍 [DEBUG] wait_for_first_frame 成功，准备进入主循环")
+        print(f"🔍 [DEBUG] frames_per_route={self.frames_per_route}, auto_save_interval={self.auto_save_interval}")
+        print(f"🔍 [DEBUG] agent={self._inner_collector.agent}, vehicle={self._inner_collector.vehicle}")
+        
+        # 重置 step_simulation 的调试计数器
+        self._inner_collector._step_debug_count = 0
+        
         saved_frames = 0
         pending_frames = 0
         segment_data = {'rgb': [], 'targets': []}
         segment_start_cmd = None
         
         try:
+            print("🔍 [DEBUG] 进入主收集循环")
+            loop_count = 0
             while (saved_frames + pending_frames) < self.frames_per_route:
+                loop_count += 1
+                if loop_count <= 5 or loop_count % 100 == 0:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 准备调用 step_simulation()")
+                
                 self._inner_collector.step_simulation()
+                
+                if loop_count <= 10 or loop_count % 100 == 0:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, step_simulation() 完成")
+                
+                if loop_count <= 10:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 检查路线完成状态...")
                 
                 if self._inner_collector._is_route_completed():
                     print(f"\n🎯 已到达目的地！")
                     break
                 
+                if loop_count <= 10:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 检查碰撞和异常...")
+                
                 # === 碰撞和异常检测 ===
                 is_collision = self._inner_collector.collision_detected
                 is_anomaly = self._inner_collector.check_vehicle_anomaly()
+                
+                if loop_count <= 10:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, collision={is_collision}, anomaly={is_anomaly}")
                 
                 if is_collision or is_anomaly:
                     if is_collision:
@@ -1548,18 +1622,30 @@ class AutoFullTownCollector(BaseDataCollector):
                 
                 # === 正常数据收集 ===
                 if len(self._inner_collector.image_buffer) == 0:
+                    if loop_count <= 10:
+                        print(f"🔍 [DEBUG] 循环 #{loop_count}, image_buffer 为空，跳过")
                     continue
+                
+                if loop_count <= 10:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, 获取图像和速度...")
                 
                 current_image = self._inner_collector.image_buffer[-1].copy()
                 speed_kmh = self._inner_collector._get_vehicle_speed()
                 current_cmd = self._inner_collector._get_navigation_command()
                 
+                if loop_count <= 10:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, speed={speed_kmh:.1f}, cmd={current_cmd}, img_mean={current_image.mean():.1f}")
+                
                 # 跳过无效帧
                 if current_image.mean() < 5 or speed_kmh > 150:
+                    if loop_count <= 10:
+                        print(f"🔍 [DEBUG] 循环 #{loop_count}, 无效帧，跳过")
                     continue
                 
                 # 再次检查碰撞和异常
                 if self._inner_collector.collision_detected or self._inner_collector.anomaly_detected:
+                    if loop_count <= 10:
+                        print(f"🔍 [DEBUG] 循环 #{loop_count}, 碰撞/异常，跳过")
                     continue
                 
                 targets = self._inner_collector._build_targets(speed_kmh, current_cmd)
@@ -1571,14 +1657,21 @@ class AutoFullTownCollector(BaseDataCollector):
                 segment_data['targets'].append(targets)
                 pending_frames += 1
                 
+                if loop_count <= 10:
+                    print(f"🔍 [DEBUG] 循环 #{loop_count}, pending_frames={pending_frames}")
+                
                 # 可视化
                 if self._inner_collector.enable_visualization:
+                    if loop_count <= 10:
+                        print(f"🔍 [DEBUG] 循环 #{loop_count}, 准备调用 _visualize_frame()...")
                     self._inner_collector.segment_count = pending_frames
                     total_progress = saved_frames + pending_frames
                     self._inner_collector._visualize_frame(
                         current_image, speed_kmh, current_cmd,
                         total_progress, self.frames_per_route, is_collecting=True
                     )
+                    if loop_count <= 10:
+                        print(f"🔍 [DEBUG] 循环 #{loop_count}, _visualize_frame() 完成")
                 
                 # 定期保存
                 if pending_frames >= self.auto_save_interval:
