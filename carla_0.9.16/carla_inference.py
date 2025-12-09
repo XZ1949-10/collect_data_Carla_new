@@ -94,12 +94,12 @@ class CarlaInference:
         # 功能模块
         self.model_loader = ModelLoader(model_path, self.device)
         # 图像处理器（与数据收集保持一致的裁剪参数）
-        # 裁剪比例：top=115/600=0.192, bottom=510/600=0.85
+        # 裁剪区域：[90:485, :] 去除天空和车头
         self.image_processor = ImageProcessor(
             self.device,
             enable_crop=enable_image_crop,
-            crop_ratio_top=0.192,
-            crop_ratio_bottom=0.85
+            crop_top=90,
+            crop_bottom=485
         )
         self.vehicle_controller = VehicleController()
         self.model_predictor = None  # 在加载模型后初始化
