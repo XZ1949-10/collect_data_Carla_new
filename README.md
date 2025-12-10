@@ -48,7 +48,7 @@
 
 https://github.com/user-attachments/assets/2b747f1f-049f-4c86-9b5d-d70f5220c136
 
-[📥 下载视频]击(左转场景.mp4)
+[📥 下载视频](左转场景.mp4)
 
 </td>
 <td align="center" width="33%">
@@ -313,6 +313,7 @@ python balance_data_selector.py --source /path/to/data --output /path/to/balance
 ```
 
 ---
+
 
 ## 📚 参考文献
 
