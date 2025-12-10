@@ -1,193 +1,252 @@
-# CARLA-CIL: End-to-End Autonomous Driving via Conditional Imitation Learning
+# 🚗 CARLA-CIL
 
-<p align="center">
-  <img src="carla_0.9.16.png" alt="Visualization Interface" width="800"/>
-</p>
+<div align="center">
 
-<p align="center">
-  <a href="#demo">Demo</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#citation">Citation</a>
-</p>
+**基于条件模仿学习的端到端自动驾驶系统**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/CARLA-0.9.16-blue" alt="CARLA Version"/>
-  <img src="https://img.shields.io/badge/Python-3.8+-green" alt="Python Version"/>
-  <img src="https://img.shields.io/badge/PyTorch-1.x%20%7C%202.x-orange" alt="PyTorch Version"/>
-  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License"/>
-</p>
+*End-to-End Autonomous Driving via Conditional Imitation Learning*
 
----
+<img src="carla_0.9.16.png" alt="Visualization Interface" width="800"/>
 
-## 📖 Abstract
+<br/>
 
-本项目实现了基于 **条件模仿学习（Conditional Imitation Learning, CIL）** 的端到端自动驾驶系统。系统包含完整的数据收集、模型训练和实时推理流程，支持在 CARLA 0.9.16 模拟器中进行全自动化的驾驶数据收集，并实现了 DAgger 风格的噪声注入策略以增强模型鲁棒性。
+[![CARLA](https://img.shields.io/badge/CARLA-0.9.16-blue?style=for-the-badge&logo=unrealengine)](https://carla.org/)
+[![Python](https://img.shields.io/badge/Python-3.8+-green?style=for-the-badge&logo=python)](https://python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.x%20|%202.x-orange?style=for-the-badge&logo=pytorch)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-**主要贡献：**
-- 🚗 全自动化数据收集系统，支持智能路线规划、碰撞恢复、命令平衡
-- 🎯 DAgger 风格噪声注入，包含 Impulse/Smooth/Drift/Jitter 四种模式
-- 🧠 条件模仿学习网络实现，支持四种导航命令的分支预测
-- 📊 完整的数据验证、可视化和平衡工具链
+[🎬 演示](#-演示) · [⚡ 快速开始](#-快速开始) · [📦 数据收集](#-数据收集) · [🧠 模型训练](#-模型训练) · [🔮 模型推理](#-模型推理)
+
+</div>
 
 ---
 
-## 🎬 Demo
+## 📖 项目简介
 
-### 模型推理演示
+本项目实现了完整的 **条件模仿学习（CIL）** 自动驾驶流水线，包含：
 
-使用训练好的 CIL 模型在 CARLA 中进行实时自动驾驶推理，展示三种典型场景：
+| 模块 | 功能 | 特点 |
+|:---:|:---|:---|
+| 📦 **数据收集** | 全自动驾驶数据采集 | 智能路线规划、碰撞恢复、命令平衡 |
+| 🎯 **噪声注入** | DAgger 风格数据增强 | Impulse/Smooth/Drift/Jitter 四种模式 |
+| 🧠 **模型训练** | 多 GPU 分布式训练 | DDP 加速、早停机制、自动学习率调节 |
+| 🔮 **实时推理** | CARLA 实时自动驾驶 | 导航命令分支预测、可视化界面 |
 
-#### 🔄 左转场景
+---
+
+## 🎬 演示
+
+### 模型推理效果
+
+使用训练好的 CIL 模型在 CARLA 中进行实时自动驾驶：
+
+<table>
+<tr>
+<td align="center" width="33%">
+
+**🔄 左转场景**
 
 https://github.com/user-attachments/assets/2b747f1f-049f-4c86-9b5d-d70f5220c136
 
-> 📹 **[点击下载/查看完整视频：左转场景](左转场景.mp4)**
+[� 下载视频]击(左转场景.mp4)
 
-#### 🔃 右转场景
+</td>
+<td align="center" width="33%">
+
+**🔃 右转场景**
 
 https://github.com/user-attachments/assets/79f28b71-d242-4910-922b-048b8a1816fc
 
-> 📹 **[点击下载/查看完整视频：右转场景](右转场景.mp4)**
+[📥 下载视频](右转场景.mp4)
 
-#### ⬆️ 直行场景
+</td>
+<td align="center" width="33%">
+
+**⬆️ 直行场景**
 
 https://github.com/user-attachments/assets/c659094c-47b0-4d47-a513-e5332857a732
 
-> 📹 **[点击下载/查看完整视频：直行场景](直行场景.mp4)**
+[📥 下载视频](直行场景.mp4)
 
-### 噪声注入数据收集
+</td>
+</tr>
+</table>
 
-DAgger 风格噪声注入后的数据收集过程，展示车辆偏离-恢复行为：
+### DAgger 噪声注入数据收集
+
+展示车辆偏离-恢复行为，用于增强模型鲁棒性：
 
 https://github.com/user-attachments/assets/2b613e98-06e3-4367-8ff4-cc6aa3442a33
 
-> 📹 **[点击下载/查看完整视频：噪声注入演示](加噪之后示例视频HD.mp4)**
+> 📹 [点击下载完整视频](加噪之后示例视频HD.mp4)
 
-### 收集可视化界面介绍
+<details>
+<summary>📊 数据收集可视化界面</summary>
 
 <p align="center">
   <img src="collect_data_old/可视化界面的显示示例.png" alt="Data Collection Visualization" width="800"/>
-  <br>
-  <em>数据收集可视化界面：显示 RGB 图像、导航命令、车辆状态和噪声信息</em>
 </p>
+
+显示内容：RGB 图像、导航命令、车辆状态、噪声信息
+
+</details>
 
 ---
 
-## 🏗️ Architecture
-
-### 系统架构
+## 🏗️ 项目结构
 
 ```
 CARLA-CIL/
-├── agents/                      # CARLA 导航代理模块
-│   └── navigation/              # 路径规划和车辆控制
-│       ├── basic_agent.py       # 基础导航代理
-│       ├── global_route_planner.py  # 全局路径规划器
-│       └── local_planner.py     # 局部路径规划器
 │
-├── carla_0.9.16/               # 🧠 模型推理模块
-│   ├── network/                # 神经网络定义
-│   │   └── carla_net.py        # CIL 网络结构
-│   ├── model/                  # 训练好的模型权重
-│   ├── carla_inference.py      # 主推理脚本
-│   ├── carla_model_loader.py   # 模型加载器
-│   ├── carla_model_predictor.py # 模型预测器
-│   ├── carla_image_processor.py # 图像预处理
-│   ├── carla_vehicle_controller.py # 车辆控制器
-│   ├── carla_sensors.py        # 传感器管理
-│   └── carla_visualizer.py     # 可视化工具
-│
-├── collect_data_old/           # 📦 数据收集模块
+├── 📦 collect_data_old/              # 数据收集模块
 │   ├── auto_full_town_collection.py  # 全自动数据收集器
-│   ├── auto_collection_config.json   # 收集配置文件
-│   ├── base_collector.py       # 收集器基类
-│   ├── noiser.py               # 噪声注入模块
-│   ├── verify_collected_data.py # 数据验证工具
-│   └── visualize_h5_data.py    # 数据可视化工具
+│   ├── base_collector.py             # 收集器基类
+│   ├── noiser.py                     # 噪声注入（4种模式）
+│   ├── carla_npc_manager.py          # NPC 车辆/行人管理
+│   ├── anomaly_detector.py           # 异常检测（打转/翻车/卡住）
+│   ├── verify_collected_data.py      # 数据验证工具
+│   ├── visualize_h5_data.py          # 数据可视化工具
+│   └── balance_data_selector.py      # 数据平衡工具
 │
-└── _benchmarks_results/        # 📊 基准测试结果
-```
-
-### 网络结构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CIL Network Architecture                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   Input: RGB Image (200×88×3) + Speed + Navigation Command  │
-│                          ↓                                   │
-│   ┌─────────────────────────────────────────────────────┐   │
-│   │         CNN Feature Extractor (8 Conv Layers)        │   │
-│   │   Conv1→Conv2→Conv3→Conv4→Conv5→Conv6→Conv7→Conv8   │   │
-│   └─────────────────────────────────────────────────────┘   │
-│                          ↓                                   │
-│   ┌──────────────────┐       ┌──────────────────┐          │
-│   │ Image FC (512-d) │       │ Speed FC (128-d) │          │
-│   └────────┬─────────┘       └────────┬─────────┘          │
-│            └──────────┬───────────────┘                     │
-│                       ↓                                      │
-│   ┌─────────────────────────────────────────────────────┐   │
-│   │            Feature Fusion (640 → 512-d)              │   │
-│   └─────────────────────────────────────────────────────┘   │
-│                          ↓                                   │
-│   ┌─────────┬─────────┬─────────┬─────────┐                │
-│   │ Follow  │  Left   │  Right  │Straight │  ← Command     │
-│   │ Branch  │ Branch  │ Branch  │ Branch  │    Selection   │
-│   └────┬────┴────┬────┴────┬────┴────┬────┘                │
-│        └─────────┴─────────┴─────────┘                      │
-│                          ↓                                   │
-│            Output: [Steer, Throttle, Brake]                 │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+├── 🧠 carla_train/                   # 模型训练模块
+│   ├── main_ddp.py                   # 多 GPU 分布式训练
+│   ├── carla_net_ori.py              # CIL 网络定义
+│   ├── carla_loader_ddp.py           # 分布式数据加载器
+│   └── finetune.py                   # 模型微调
+│
+├── 🔮 carla_0.9.16/                  # 模型推理模块
+│   ├── carla_inference.py            # 主推理脚本
+│   ├── network/carla_net.py          # 网络结构
+│   ├── carla_model_predictor.py      # 模型预测器
+│   ├── carla_image_processor.py      # 图像预处理
+│   ├── carla_vehicle_controller.py   # 车辆控制器
+│   ├── carla_sensors.py              # 传感器管理
+│   ├── carla_visualizer.py           # 可视化工具
+│   └── navigation_planner_adapter.py # 导航规划适配器
+│
+└── 🤖 agents/navigation/             # CARLA 导航代理
+    ├── global_route_planner.py       # 全局路径规划
+    ├── local_planner.py              # 局部路径规划
+    └── basic_agent.py                # 基础导航代理
 ```
 
 ---
 
-## ⚙️ Installation
+## 🧠 网络架构
 
-### Requirements
+```
+┌────────────────────────────────────────────────────────────────┐
+│                     CIL Network Architecture                    │
+├────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│    ┌─────────────┐     ┌─────────────┐     ┌──────────────┐   │
+│    │  RGB Image  │     │    Speed    │     │   Command    │   │
+│    │  200×88×3   │     │   (1-dim)   │     │   (1 of 4)   │   │
+│    └──────┬──────┘     └──────┬──────┘     └──────┬───────┘   │
+│           │                   │                   │            │
+│           ▼                   │                   │            │
+│    ┌──────────────┐           │                   │            │
+│    │   8-Layer    │           │                   │            │
+│    │     CNN      │           │                   │            │
+│    │  32→64→128   │           │                   │            │
+│    │    →256      │           │                   │            │
+│    └──────┬───────┘           │                   │            │
+│           │                   │                   │            │
+│           ▼                   ▼                   │            │
+│    ┌──────────────┐    ┌──────────────┐          │            │
+│    │  Image FC    │    │  Speed FC    │          │            │
+│    │   512-dim    │    │   128-dim    │          │            │
+│    └──────┬───────┘    └──────┬───────┘          │            │
+│           │                   │                   │            │
+│           └─────────┬─────────┘                   │            │
+│                     ▼                             │            │
+│              ┌──────────────┐                     │            │
+│              │   Fusion FC  │                     │            │
+│              │   640→512    │                     │            │
+│              └──────┬───────┘                     │            │
+│                     │                             │            │
+│     ┌───────────────┼───────────────┐             │            │
+│     ▼               ▼               ▼             ▼            │
+│ ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐         │
+│ │ Follow │    │  Left  │    │ Right  │    │Straight│ ← Select │
+│ │ Branch │    │ Branch │    │ Branch │    │ Branch │          │
+│ └───┬────┘    └───┬────┘    └───┬────┘    └───┬────┘         │
+│     └─────────────┴─────────────┴─────────────┘               │
+│                           │                                    │
+│                           ▼                                    │
+│              ┌─────────────────────────┐                      │
+│              │  [Steer, Throttle, Brake] │                      │
+│              └─────────────────────────┘                      │
+│                                                                 │
+└────────────────────────────────────────────────────────────────┘
+```
 
-| Dependency | Version |
-|------------|---------|
-| CARLA Simulator | 0.9.16 |
-| Python | ≥ 3.8 |
-| PyTorch | 1.x / 2.x |
-| NumPy | < 2.0 |
-| OpenCV | Latest |
-| h5py | Latest |
+**导航命令映射：** `2=Follow` | `3=Left` | `4=Right` | `5=Straight`
 
-### Setup
+---
+
+## ⚙️ 环境配置
+
+
+### 依赖要求
+
+| 依赖 | 版本 | 说明 |
+|:---|:---|:---|
+| CARLA Simulator | 0.9.16 | 自动驾驶模拟器 |
+| Python | ≥ 3.8 | 编程语言 |
+| PyTorch | 1.x / 2.x | 深度学习框架 |
+| NumPy | < 2.0 | 数值计算 |
+| OpenCV | Latest | 图像处理 |
+| h5py | Latest | 数据存储 |
+| NetworkX | Latest | 路径规划 |
+
+### 安装步骤
 
 ```bash
-# Clone the repository
+# 1. 克隆仓库
 git clone https://github.com/your-username/carla-cil.git
 cd carla-cil
 
-# Install dependencies
-pip install torch torchvision numpy<2.0 opencv-python h5py networkx shapely
+# 2. 安装 Python 依赖
+pip install torch torchvision numpy<2.0 opencv-python h5py networkx shapely tensorboardX
 
-# Install CARLA Python API (adjust path to your CARLA installation)
+# 3. 安装 CARLA Python API（根据你的 CARLA 安装路径调整）
 pip install /path/to/CARLA_0.9.16/PythonAPI/carla/dist/carla-0.9.16-py3.x-linux-x86_64.whl
 ```
 
 ---
 
-## 🚀 Quick Start
+## ⚡ 快速开始
 
-### 1. Data Collection
+### 1️⃣ 启动 CARLA 服务器
 
 ```bash
-# Start CARLA server
+# Windows
 CarlaUE4.exe -quality-level=Low
 
-# Run automatic data collection
+# Linux
+./CarlaUE4.sh -quality-level=Low
+```
+
+### 2️⃣ 数据收集
+
+```bash
 cd collect_data_old
 python auto_full_town_collection.py
 ```
 
-### 2. Model Inference
+### 3️⃣ 模型训练
+
+```bash
+cd carla_train
+# 单 GPU
+python main_ddp.py --batch-size 32
+
+# 多 GPU（6卡示例）
+torchrun --nproc_per_node=6 main_ddp.py --batch-size 168
+```
+
+### 4️⃣ 模型推理
 
 ```bash
 cd carla_0.9.16
@@ -196,7 +255,7 @@ python carla_inference.py --model model/your_model.pth --town Town01
 
 ---
 
-## 📊 Data Collection
+## 📦 数据收集
 
 ### 配置文件
 
@@ -225,8 +284,8 @@ python carla_inference.py --model model/your_model.pth --town Town01
 
 ### 噪声注入模式
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
+| 模式 | 描述 | 应用场景 |
+|:---:|:---|:---|
 | **Impulse** | 短促脉冲，快速上升下降 | 模拟突发干扰 |
 | **Smooth** | 平滑偏移，缓入缓出 | 模拟渐进偏离 |
 | **Drift** | 正弦波形，缓慢漂移 | 模拟持续偏移 |
@@ -236,67 +295,98 @@ python carla_inference.py --model model/your_model.pth --town Town01
 
 ```
 data_cmd{command}_{timestamp}.h5
-├── rgb: (N, 200, 88, 3) uint8    # RGB images
-└── targets: (N, 4) float32       # [steer, throttle, brake, speed]
+├── rgb: (N, 200, 88, 3) uint8      # RGB 图像
+└── targets: (N, 4) float32         # [steer, throttle, brake, speed]
 ```
 
-**Command Types:** 2=Follow, 3=Left, 4=Right, 5=Straight
+### 数据工具
 
----
-
-## 🔧 Tools
-
-### Data Verification
 ```bash
-python collect_data_old/verify_collected_data.py --path /path/to/data --min-frames 200
-```
+# 数据验证
+python verify_collected_data.py --path /path/to/data --min-frames 200
 
-### Data Visualization
-```bash
-python collect_data_old/visualize_h5_data.py --file data.h5
-```
+# 数据可视化
+python visualize_h5_data.py --file data.h5
 
-### Data Balancing
-```bash
-python collect_data_old/balance_data_selector.py --source /path/to/data --output /path/to/balanced
+# 数据平衡
+python balance_data_selector.py --source /path/to/data --output /path/to/balanced
 ```
 
 ---
 
-## 📈 Results
+## 🧠 模型训练
 
-基准测试结果存储在 `_benchmarks_results/` 目录下，包含在 Town01 上的多次评估结果。
+### 训练参数
+
+| 参数 | 默认值 | 说明 |
+|:---|:---|:---|
+| `--batch-size` | 600 | 总批次大小（所有 GPU） |
+| `--lr` | 1e-4 | 初始学习率 |
+| `--epochs` | 90 | 训练轮数 |
+| `--early-stop` | True | 启用早停 |
+| `--patience` | 10 | 早停耐心值 |
+| `--auto-lr` | True | 自动学习率调节 |
+
+### 训练命令
+
+```bash
+# 基础训练
+python main_ddp.py --train-dir /path/to/train --eval-dir /path/to/val
+
+# 带早停和自动学习率
+python main_ddp.py --early-stop --patience 10 --auto-lr --lr-patience 5
+
+# 多 GPU 分布式训练
+torchrun --nproc_per_node=6 main_ddp.py --batch-size 168 --sync-bn
+```
 
 ---
 
-## 📚 References
+## 🔮 模型推理
+
+### 推理参数
+
+| 参数 | 默认值 | 说明 |
+|:---|:---|:---|
+| `--model-path` | - | 模型权重路径 |
+| `--town` | Town01 | CARLA 地图 |
+| `--duration` | 60 | 运行时长（秒），-1 为无限 |
+| `--vis-mode` | spectator | 可视化模式 |
+| `--auto-replan` | False | 到达后自动重新规划 |
+
+### 推理命令
+
+```bash
+# 基础推理
+python carla_inference.py --model model/best.pth
+
+# 指定起点终点
+python carla_inference.py --model model/best.pth --spawn-index 1 --dest-index 189
+
+# 无限运行 + 自动重新规划
+python carla_inference.py --model model/best.pth --duration -1 --auto-replan True
+
+# 列出所有生成点
+python carla_inference.py --list-spawns
+```
+
+---
+
+## 📚 参考文献
 
 ```bibtex
 @inproceedings{codevilla2018end,
   title={End-to-end driving via conditional imitation learning},
   author={Codevilla, Felipe and M{\"u}ller, Matthias and L{\'o}pez, Antonio and Koltun, Vladlen and Dosovitskiy, Alexey},
-  booktitle={2018 IEEE International Conference on Robotics and Automation (ICRA)},
-  pages={4693--4700},
-  year={2018},
-  organization={IEEE}
+  booktitle={ICRA},
+  year={2018}
 }
 
 @inproceedings{dosovitskiy2017carla,
   title={CARLA: An open urban driving simulator},
   author={Dosovitskiy, Alexey and Ros, German and Codevilla, Felipe and Lopez, Antonio and Koltun, Vladlen},
-  booktitle={Conference on robot learning},
-  pages={1--16},
-  year={2017},
-  organization={PMLR}
-}
-
-@inproceedings{chen2020learning,
-  title={Learning by cheating},
-  author={Chen, Dian and Zhou, Brady and Koltun, Vladlen and Kr{\"a}henb{\"u}hl, Philipp},
-  booktitle={Conference on Robot Learning},
-  pages={66--75},
-  year={2020},
-  organization={PMLR}
+  booktitle={CoRL},
+  year={2017}
 }
 ```
 
@@ -308,14 +398,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🙏 Acknowledgements
+<div align="center">
 
-- [CARLA Simulator](https://carla.org/) - Open-source autonomous driving simulator
-- [CIL Paper](https://arxiv.org/abs/1710.02410) - End-to-end Driving via Conditional Imitation Learning
-- [Learning by Cheating](https://arxiv.org/abs/1912.12294) - Inspiration for data collection strategies
+**Made with ❤️ for autonomous driving research**
 
----
+[⬆ 返回顶部](#-carla-cil)
 
-<p align="center">
-  Made with ❤️ for autonomous driving research
-</p>
+</div>
