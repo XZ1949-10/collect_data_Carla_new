@@ -36,11 +36,25 @@
 
 ### 模型推理演示
 
-使用训练好的 CIL 模型在 CARLA 中进行实时自动驾驶推理：
+使用训练好的 CIL 模型在 CARLA 中进行实时自动驾驶推理，展示三种典型场景：
 
-https://github.com/user-attachments/assets/84c0a3c8-fcc1-49ba-aa3a-576ed7d35160
+#### 🔄 左转场景
 
-> 📹 **[点击下载/查看完整视频：模型推理演示](使用训练好的模型进行推理的过程.mp4)**
+https://github.com/user-attachments/assets/2b747f1f-049f-4c86-9b5d-d70f5220c136
+
+> 📹 **[点击下载/查看完整视频：左转场景](左转场景.mp4)**
+
+#### 🔃 右转场景
+
+https://github.com/user-attachments/assets/79f28b71-d242-4910-922b-048b8a1816fc
+
+> 📹 **[点击下载/查看完整视频：右转场景](右转场景.mp4)**
+
+#### ⬆️ 直行场景
+
+https://github.com/user-attachments/assets/c659094c-47b0-4d47-a513-e5332857a732
+
+> 📹 **[点击下载/查看完整视频：直行场景](直行场景.mp4)**
 
 ### 噪声注入数据收集
 
