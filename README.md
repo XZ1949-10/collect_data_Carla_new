@@ -15,7 +15,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.x%20|%202.x-orange?style=for-the-badge&logo=pytorch)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-[🎬 演示](#-演示) · [⚡ 快速开始](#-快速开始) · [📦 数据收集](#-数据收集) · [🧠 模型训练](#-模型训练) · [🔮 模型推理](#-模型推理)
+[🎬 演示](#-演示) · [⚡ 快速开始](#-快速开始) · [📦 数据收集](#-数据收集)
 
 </div>
 
