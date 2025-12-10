@@ -48,7 +48,7 @@
 
 https://github.com/user-attachments/assets/2b747f1f-049f-4c86-9b5d-d70f5220c136
 
-[� 下载视频]击(左转场景.mp4)
+[📥 下载视频]击(左转场景.mp4)
 
 </td>
 <td align="center" width="33%">
@@ -242,8 +242,8 @@ cd carla_train
 # 单 GPU
 python main_ddp.py --batch-size 32
 
-# 多 GPU（6卡示例）
-torchrun --nproc_per_node=6 main_ddp.py --batch-size 168
+# 多 GPU（6卡示例liunx）
+bash run_ddp.sh
 ```
 
 ### 4️⃣ 模型推理
@@ -308,66 +308,8 @@ python verify_collected_data.py --path /path/to/data --min-frames 200
 # 数据可视化
 python visualize_h5_data.py --file data.h5
 
-# 数据平衡
+# 数据平衡 可以多文件夹内进行平衡
 python balance_data_selector.py --source /path/to/data --output /path/to/balanced
-```
-
----
-
-## 🧠 模型训练
-
-### 训练参数
-
-| 参数 | 默认值 | 说明 |
-|:---|:---|:---|
-| `--batch-size` | 600 | 总批次大小（所有 GPU） |
-| `--lr` | 1e-4 | 初始学习率 |
-| `--epochs` | 90 | 训练轮数 |
-| `--early-stop` | True | 启用早停 |
-| `--patience` | 10 | 早停耐心值 |
-| `--auto-lr` | True | 自动学习率调节 |
-
-### 训练命令
-
-```bash
-# 基础训练
-python main_ddp.py --train-dir /path/to/train --eval-dir /path/to/val
-
-# 带早停和自动学习率
-python main_ddp.py --early-stop --patience 10 --auto-lr --lr-patience 5
-
-# 多 GPU 分布式训练
-torchrun --nproc_per_node=6 main_ddp.py --batch-size 168 --sync-bn
-```
-
----
-
-## 🔮 模型推理
-
-### 推理参数
-
-| 参数 | 默认值 | 说明 |
-|:---|:---|:---|
-| `--model-path` | - | 模型权重路径 |
-| `--town` | Town01 | CARLA 地图 |
-| `--duration` | 60 | 运行时长（秒），-1 为无限 |
-| `--vis-mode` | spectator | 可视化模式 |
-| `--auto-replan` | False | 到达后自动重新规划 |
-
-### 推理命令
-
-```bash
-# 基础推理
-python carla_inference.py --model model/best.pth
-
-# 指定起点终点
-python carla_inference.py --model model/best.pth --spawn-index 1 --dest-index 189
-
-# 无限运行 + 自动重新规划
-python carla_inference.py --model model/best.pth --duration -1 --auto-replan True
-
-# 列出所有生成点
-python carla_inference.py --list-spawns
 ```
 
 ---
