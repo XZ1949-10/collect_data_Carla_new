@@ -1,0 +1,15 @@
+# CARLA CIL PyTorch 依赖包
+# 注意: imgaug 需要 numpy<2.0
+
+numpy==1.26.4
+torch>=1.0.0
+torchvision>=0.2.1
+h5py>=2.9.0
+imgaug==0.4.0
+tensorboardX==2.6.4
+opencv-python==4.12.0.88
+scipy>=1.2.0
+Pillow>=5.4.1
+matplotlib>=3.0.2
+scikit-image>=0.14.2
+
