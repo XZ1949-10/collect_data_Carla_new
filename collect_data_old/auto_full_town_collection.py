@@ -964,6 +964,27 @@ class AutoFullTownCollector(BaseDataCollector):
         result = {'success': False, 'saved_frames': 0, 'need_recovery': False, 'recovery_transform': None}
         
         try:
+            # 关键修复：在每次收集开始前，强制重新设置同步模式
+            # 这可以修复资源清理后同步模式状态不一致的问题
+            print("  🔄 强制重新设置同步模式...")
+            try:
+                settings = self.world.get_settings()
+                # 先切换到异步模式
+                settings.synchronous_mode = False
+                self.world.apply_settings(settings)
+                time.sleep(0.5)
+                # 再切换回同步模式
+                settings = self.world.get_settings()
+                settings.synchronous_mode = True
+                settings.fixed_delta_seconds = 1.0 / self.simulation_fps
+                self.world.apply_settings(settings)
+                time.sleep(0.5)
+                # 验证
+                verify = self.world.get_settings()
+                print(f"  ✅ 同步模式已设置（验证: {verify.synchronous_mode}）")
+            except Exception as e:
+                print(f"  ⚠️ 设置同步模式失败: {e}")
+            
             # 创建内部收集器
             from command_based_data_collection import CommandBasedDataCollector
             self._inner_collector = CommandBasedDataCollector(
@@ -1210,26 +1231,45 @@ class AutoFullTownCollector(BaseDataCollector):
             self._cleanup_inner_collector()
     
     def _reset_sync_mode(self):
-        """重置同步模式（用于错误恢复）"""
+        """重置同步模式（用于错误恢复）
+        
+        当检测到 CARLA 服务器可能卡住时调用此方法。
+        通过完全重置同步模式来尝试恢复服务器响应。
+        """
+        print("🔄 正在重置同步模式...")
+        
         try:
-            # 先关闭同步模式
+            # 1. 先关闭同步模式
+            print("  ⏳ 切换到异步模式...")
             settings = self.world.get_settings()
             settings.synchronous_mode = False
             self.world.apply_settings(settings)
-            time.sleep(3.0)  # 等待CARLA完全切换到异步模式（增加到3秒）
+            time.sleep(5.0)  # 增加到 5 秒，给服务器足够时间处理
+            print("  ✅ 已切换到异步模式")
             
-            # 重新开启同步模式
+            # 2. 等待服务器稳定
+            print("  ⏳ 等待服务器稳定...")
+            time.sleep(2.0)
+            
+            # 3. 重新开启同步模式
+            print("  ⏳ 恢复同步模式...")
+            settings = self.world.get_settings()
             settings.synchronous_mode = True
             settings.fixed_delta_seconds = 1.0 / self.simulation_fps
             self.world.apply_settings(settings)
-            time.sleep(1.0)  # 增加等待时间到1秒
+            time.sleep(2.0)  # 增加等待时间
             
             # 注意：不在这里调用tick()，因为可能没有actor监听
             # tick()会在新车辆和传感器创建后自动执行
             
             print("✅ 同步模式已重置")
+            return True
+            
         except Exception as e:
-            print(f"⚠️  重置同步模式失败: {e}")
+            print(f"❌ 重置同步模式失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def _cleanup_inner_collector(self):
         """清理内部收集器
@@ -1237,9 +1277,14 @@ class AutoFullTownCollector(BaseDataCollector):
         重要：在同步模式下，必须正确处理资源销毁和tick的时序，
         否则可能导致新传感器无法正常工作。
         
-        关键修复：必须先切换到异步模式，再销毁传感器，避免 tick() 死锁。
+        关键修复：
+        1. 必须先切换到异步模式，再销毁传感器，避免 tick() 死锁
+        2. 增加等待时间，确保 CARLA 服务器有足够时间处理
+        3. 每个资源销毁后单独等待
         """
         if self._inner_collector:
+            print("  🧹 清理内部收集器...")
+            
             # 1. 先清理agent引用（不涉及 CARLA actor）
             try:
                 self._inner_collector.agent = None
@@ -1258,51 +1303,79 @@ class AutoFullTownCollector(BaseDataCollector):
                 settings = self.world.get_settings()
                 was_sync = settings.synchronous_mode
                 if was_sync:
+                    print("  ⏳ 切换到异步模式...")
                     settings.synchronous_mode = False
                     self.world.apply_settings(settings)
-                    time.sleep(0.3)  # 等待模式切换完成
+                    time.sleep(1.0)  # 增加等待时间到 1 秒
+                    print("  ✅ 已切换到异步模式")
             except Exception as e:
                 print(f"  ⚠️ 切换异步模式失败: {e}")
             
-            # 4. 按顺序销毁资源（传感器 -> 车辆）
+            # 4. 按顺序销毁资源（传感器 -> 车辆），每个资源单独处理
+            # 碰撞传感器
             try:
                 if self._inner_collector.collision_sensor:
-                    self._inner_collector.collision_sensor.stop()
-                    self._inner_collector.collision_sensor.destroy()
+                    try:
+                        self._inner_collector.collision_sensor.stop()
+                    except:
+                        pass
+                    try:
+                        self._inner_collector.collision_sensor.destroy()
+                    except:
+                        pass
                     self._inner_collector.collision_sensor = None
+                    time.sleep(0.3)  # 每个资源销毁后等待
             except:
                 pass
             
+            # 摄像头
             try:
                 if self._inner_collector.camera:
-                    self._inner_collector.camera.stop()
-                    self._inner_collector.camera.destroy()
+                    try:
+                        self._inner_collector.camera.stop()
+                    except:
+                        pass
+                    try:
+                        self._inner_collector.camera.destroy()
+                    except:
+                        pass
                     self._inner_collector.camera = None
+                    time.sleep(0.3)
             except:
                 pass
             
+            # 车辆
             try:
                 if self._inner_collector.vehicle:
-                    self._inner_collector.vehicle.destroy()
+                    try:
+                        self._inner_collector.vehicle.destroy()
+                    except:
+                        pass
                     self._inner_collector.vehicle = None
+                    time.sleep(0.3)
             except:
                 pass
             
             self._inner_collector = None
             
             # 5. 等待 CARLA 服务器处理销毁请求
-            time.sleep(0.5)
+            time.sleep(1.0)  # 增加到 1 秒
             
             # 6. 恢复同步模式（如果之前是同步模式）
             if was_sync:
                 try:
+                    print("  ⏳ 恢复同步模式...")
+                    time.sleep(0.5)  # 恢复前额外等待
                     settings = self.world.get_settings()
                     settings.synchronous_mode = True
                     settings.fixed_delta_seconds = 1.0 / self.simulation_fps
                     self.world.apply_settings(settings)
-                    time.sleep(0.3)
+                    time.sleep(1.0)  # 增加等待时间到 1 秒
+                    print("  ✅ 已恢复同步模式")
                 except Exception as e:
                     print(f"  ⚠️ 恢复同步模式失败: {e}")
+            
+            print("  ✅ 内部收集器清理完成")
     
     def _get_recovery_transform(self):
         """
@@ -1561,9 +1634,21 @@ class AutoFullTownCollector(BaseDataCollector):
         segment_data = {'rgb': [], 'targets': []}
         segment_start_cmd = None
         
+        # 预热缓存：在同步模式下，首次调用 agent.run_step() 前必须先缓存 actors
+        # 否则 get_actors() 会在等待 tick() 时死锁
+        self._inner_collector._warmup_actor_cache()
+        
         try:
+            _debug_frame_count = 0  # 调试计数器
             while (saved_frames + pending_frames) < self.frames_per_route:
+                _debug_frame_count += 1
+                if _debug_frame_count <= 3 or _debug_frame_count % 50 == 0:
+                    print(f"[DEBUG] 循环第 {_debug_frame_count} 次，准备调用 step_simulation...")
+                
                 self._inner_collector.step_simulation()
+                
+                if _debug_frame_count <= 5 or _debug_frame_count % 50 == 0:
+                    print(f"[DEBUG] step_simulation 完成, image_buffer长度={len(self._inner_collector.image_buffer)}")
                 
                 if self._inner_collector._is_route_completed():
                     print(f"\n🎯 已到达目的地！")
@@ -1571,7 +1656,11 @@ class AutoFullTownCollector(BaseDataCollector):
                 
                 # === 碰撞和异常检测 ===
                 is_collision = self._inner_collector.collision_detected
+                if _debug_frame_count <= 5:
+                    print(f"[DEBUG] 检查异常...")
                 is_anomaly = self._inner_collector.check_vehicle_anomaly()
+                if _debug_frame_count <= 5:
+                    print(f"[DEBUG] 异常检查完成, collision={is_collision}, anomaly={is_anomaly}")
                 
                 if is_collision or is_anomaly:
                     if is_collision:
@@ -1597,14 +1686,24 @@ class AutoFullTownCollector(BaseDataCollector):
                 
                 # === 正常数据收集 ===
                 if len(self._inner_collector.image_buffer) == 0:
+                    if _debug_frame_count <= 5:
+                        print(f"[DEBUG] image_buffer为空，continue")
                     continue
                 
                 current_image = self._inner_collector.image_buffer[-1].copy()
+                if _debug_frame_count <= 5:
+                    print(f"[DEBUG] 获取速度...")
                 speed_kmh = self._inner_collector._get_vehicle_speed()
+                if _debug_frame_count <= 5:
+                    print(f"[DEBUG] 获取导航命令...")
                 current_cmd = self._inner_collector._get_navigation_command()
+                if _debug_frame_count <= 5:
+                    print(f"[DEBUG] 速度={speed_kmh:.1f}, 命令={current_cmd}")
                 
                 # 跳过无效帧
                 if current_image.mean() < 5 or speed_kmh > 150:
+                    if _debug_frame_count <= 5:
+                        print(f"[DEBUG] 无效帧，continue")
                     continue
                 
                 # 再次检查碰撞和异常

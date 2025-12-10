@@ -1025,6 +1025,30 @@ class BaseDataCollector:
         cv2.imshow("Data Collection", combined)
         cv2.waitKey(1)
     
+    def _warmup_actor_cache(self):
+        """预热 actor 缓存，避免同步模式下首次调用 agent.run_step() 时死锁
+        
+        在同步模式下，get_actors() 需要等待服务器响应，但服务器在等待 tick()。
+        如果在 tick() 之前调用 get_actors()，会形成死锁。
+        
+        此方法在进入主循环前调用，确保：
+        1. 先执行一次 tick() 推进模拟
+        2. 立即缓存 vehicle_list 供后续 agent.run_step() 使用
+        """
+        if self.world is None:
+            return
+        
+        try:
+            # 先 tick 一次，让世界状态更新
+            self.world.tick()
+            
+            # 立即缓存 actors（此时不会阻塞）
+            if AGENTS_AVAILABLE and self.agent is not None:
+                self._cached_vehicle_list = self.world.get_actors().filter("*vehicle*")
+                print("✅ Actor 缓存预热完成")
+        except Exception as e:
+            print(f"⚠️ Actor 缓存预热失败: {e}")
+    
     def step_simulation(self):
         """推进一帧模拟（支持噪声注入）
         
@@ -1038,30 +1062,67 @@ class BaseDataCollector:
         - 使用上一帧缓存的 vehicle_list 调用 agent.run_step()
         - 在 world.tick() 后立即获取新的 vehicle_list 供下一帧使用
         - 这样避免在 agent.run_step() 中调用 get_actors() 导致阻塞
+        
+        重要：world.tick() 必须在主线程中直接调用，不能放在子线程中！
+        否则物理模拟可能不会正确推进。
         """
         if AGENTS_AVAILABLE and self.agent is not None:
             # 使用缓存的 vehicle_list（首次调用时为 None，agent 内部会处理）
             cached_vehicles = getattr(self, '_cached_vehicle_list', None)
             
-            # 获取专家控制（始终保存，用于标签）
-            expert_control = self.agent.run_step(vehicle_list=cached_vehicles)
+            # 直接调用 agent.run_step()（不使用线程，避免同步问题）
+            try:
+                expert_control = self.agent.run_step(vehicle_list=cached_vehicles)
+            except Exception as e:
+                print(f"⚠️ agent.run_step() 出错: {e}")
+                # 即使出错也要推进 tick，否则服务器会卡住
+                try:
+                    self.world.tick()
+                except:
+                    pass
+                return
+            
+            if expert_control is None:
+                print("⚠️ agent.run_step() 返回 None")
+                try:
+                    self.world.tick()
+                except:
+                    pass
+                return
+            
             self._expert_control = expert_control
+            
+            # 调试：打印控制信号（前10帧）
+            _step_count = getattr(self, '_debug_step_count', 0) + 1
+            self._debug_step_count = _step_count
+            if _step_count <= 10:
+                print(f"[DEBUG-CTRL] 帧{_step_count}: throttle={expert_control.throttle:.3f}, brake={expert_control.brake:.3f}, steer={expert_control.steer:.3f}")
             
             # 根据噪声配置决定执行哪个控制
             if self.noise_enabled and NOISER_AVAILABLE:
                 speed_kmh = self._get_vehicle_speed()
                 noisy_control = self._apply_noise(expert_control, speed_kmh)
+                if _step_count <= 10:
+                    print(f"[DEBUG-NOISE] 噪声后: throttle={noisy_control.throttle:.3f}, brake={noisy_control.brake:.3f}, hand_brake={noisy_control.hand_brake}")
                 self.vehicle.apply_control(noisy_control)
             else:
                 self.vehicle.apply_control(expert_control)
         
-        # 推进模拟
-        self.world.tick()
+        # 推进模拟 - 必须在主线程中直接调用！
+        # 不要使用线程包装，否则物理模拟可能不会正确推进
+        try:
+            self.world.tick()
+        except Exception as e:
+            print(f"⚠️ world.tick() 出错: {e}")
+            return
         
         # tick 后立即缓存 actors（此时世界状态一致，不会阻塞）
         # 供下一帧的 agent.run_step() 使用
         if AGENTS_AVAILABLE and self.agent is not None:
-            self._cached_vehicle_list = self.world.get_actors().filter("*vehicle*")
+            try:
+                self._cached_vehicle_list = self.world.get_actors().filter("*vehicle*")
+            except Exception as e:
+                print(f"⚠️ 缓存 actors 失败: {e}")
     
     def _apply_noise(self, control, speed_kmh):
         """应用噪声到控制信号
@@ -1129,6 +1190,8 @@ class BaseDataCollector:
         
         优先使用资源管理器 V2 进行清理，否则使用传统方式。
         关键：必须先切换到异步模式，再销毁传感器，避免 tick() 死锁
+        
+        修复：增加等待时间，确保 CARLA 服务器有足够时间处理模式切换和资源销毁
         """
         print("正在清理资源...")
         
@@ -1148,28 +1211,39 @@ class BaseDataCollector:
             if self.world is not None:
                 try:
                     settings = self.world.get_settings()
-                    settings.synchronous_mode = False
-                    self.world.apply_settings(settings)
-                    time.sleep(0.3)  # 等待模式切换完成
-                except:
-                    pass
+                    was_sync = settings.synchronous_mode
+                    if was_sync:
+                        settings.synchronous_mode = False
+                        self.world.apply_settings(settings)
+                        time.sleep(1.0)  # 增加等待时间到 1 秒，确保模式切换完成
+                        print("  ✅ 已切换到异步模式")
+                except Exception as e:
+                    print(f"  ⚠️ 切换异步模式失败: {e}")
             
             # 按顺序销毁资源（传感器 -> 车辆）
             if self.collision_sensor is not None:
                 try:
                     self.collision_sensor.stop()
+                except:
+                    pass
+                try:
                     self.collision_sensor.destroy()
                 except:
                     pass
                 self.collision_sensor = None
+                time.sleep(0.2)  # 每个资源销毁后等待
             
             if self.camera is not None:
                 try:
                     self.camera.stop()
+                except:
+                    pass
+                try:
                     self.camera.destroy()
                 except:
                     pass
                 self.camera = None
+                time.sleep(0.2)
             
             if self.vehicle is not None:
                 try:
@@ -1177,9 +1251,10 @@ class BaseDataCollector:
                 except:
                     pass
                 self.vehicle = None
+                time.sleep(0.2)
             
             # 等待 CARLA 服务器处理销毁请求
-            time.sleep(0.5)
+            time.sleep(1.0)  # 增加到 1 秒
         
         # 3. 清理图像缓冲
         self.image_buffer.clear()

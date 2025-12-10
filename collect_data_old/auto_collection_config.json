@@ -30,7 +30,7 @@
         "_comment_num_npc_vehicles": "NPC车辆数量（仅在spawn_npc_vehicles=true时有效），推荐值：0-50",
         "spawn_npc_walkers": true,
         "_comment_spawn_npc_walkers": "是否生成NPC行人（false=不生成；true=生成行人）",
-        "num_npc_walkers": 50,
+        "num_npc_walkers": 20,
         "_comment_num_npc_walkers": "NPC行人数量（仅在spawn_npc_walkers=true时有效），推荐值：0-100",
         
         "npc_behavior": {
@@ -81,7 +81,7 @@
         "_comment_max_distance": "最大路线距离（米，使用实际路径距离），推荐400m避免单条路线过长",
         "target_routes_ratio": 1.0,
         "_comment_target_routes_ratio": "路线选择比例（0-1），从筛选后的路线中选择多少比例，1.0=全选，0.5=选一半",
-        "max_candidates_to_analyze": 6000,
+        "max_candidates_to_analyze": 60000,
         "_comment_max_candidates_to_analyze": "最多分析的候选路线数（0=不限制，分析所有组合），大地图可设为3000-5000加速",
         "overlap_threshold": 0.6,
         "_comment_overlap_threshold": "路径重叠阈值（0-1），超过此值的路线会被去重，推荐0.3-0.5，越低去重越严格",
@@ -105,7 +105,7 @@
     
     "multi_weather_settings": {
         "_comment": "多天气轮换收集配置",
-        "enabled": false,
+        "enabled": true,
         "_comment_enabled": "是否启用多天气轮换（true=启用，每个天气收集完后自动切换下一个）",
         "weather_preset": "full",
         "_comment_weather_preset": "天气组合预设：all_noon/all_sunset/all_night/clear_all/rain_all/basic/full",

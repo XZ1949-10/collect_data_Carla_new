@@ -143,22 +143,27 @@ class CarlaResourceManagerV2:
     
     # ==================== 同步模式管理 ====================
     
-    def _set_sync_mode(self, enabled: bool, wait_time: float = 0.3) -> bool:
+    def _set_sync_mode(self, enabled: bool, wait_time: float = 1.0) -> bool:
         """
         设置同步模式
         
         参数:
             enabled: True=同步模式, False=异步模式
-            wait_time: 模式切换后等待时间
+            wait_time: 模式切换后等待时间（默认增加到 1.0 秒）
             
         返回:
             bool: 是否成功
         """
         try:
             settings = self.world.get_settings()
-            if settings.synchronous_mode == enabled:
+            current_mode = settings.synchronous_mode
+            
+            if current_mode == enabled:
                 self._sync_mode_enabled = enabled
                 return True
+            
+            mode_name = "同步" if enabled else "异步"
+            print(f"  ⏳ 切换到{mode_name}模式（当前: {'同步' if current_mode else '异步'}）...")
             
             settings.synchronous_mode = enabled
             if enabled:
@@ -168,11 +173,21 @@ class CarlaResourceManagerV2:
             
             self.world.apply_settings(settings)
             time.sleep(wait_time)
+            
+            # 验证模式是否真正切换成功
+            verify_settings = self.world.get_settings()
+            if verify_settings.synchronous_mode != enabled:
+                print(f"  ⚠️ 模式切换验证失败！期望: {enabled}, 实际: {verify_settings.synchronous_mode}")
+                return False
+            
             self._sync_mode_enabled = enabled
+            print(f"  ✅ 已切换到{mode_name}模式（已验证）")
             return True
             
         except Exception as e:
             print(f"⚠️ 同步模式切换失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def ensure_sync_mode(self) -> bool:
@@ -218,14 +233,34 @@ class CarlaResourceManagerV2:
             print(f"❌ 创建车辆异常: {e}")
             return False
     
-    def _stabilize_vehicle(self, ticks: int = 5):
-        """等待车辆物理稳定"""
-        if self._sync_mode_enabled:
-            for _ in range(ticks):
-                self.world.tick()
-                time.sleep(0.05)
+    def _stabilize_vehicle(self, ticks: int = 10):
+        """等待车辆物理稳定
+        
+        重要：无论同步/异步模式，都需要推进物理模拟让车辆稳定
+        """
+        # 检查当前实际的同步模式状态
+        try:
+            settings = self.world.get_settings()
+            is_sync = settings.synchronous_mode
+        except:
+            is_sync = self._sync_mode_enabled
+        
+        print(f"  ⏳ 等待车辆物理稳定（同步模式: {is_sync}）...")
+        
+        if is_sync:
+            # 同步模式：必须调用 tick() 推进物理
+            for i in range(ticks):
+                try:
+                    self.world.tick()
+                    time.sleep(0.05)
+                except Exception as e:
+                    print(f"  ⚠️ 稳定化 tick {i} 失败: {e}")
+                    break
         else:
-            time.sleep(0.5)
+            # 异步模式：等待一段时间
+            time.sleep(1.0)
+        
+        print(f"  ✅ 车辆物理稳定完成")
     
     def create_camera(self, callback: Callable,
                       width: int = 800, height: int = 600, fov: int = 90,
@@ -323,8 +358,18 @@ class CarlaResourceManagerV2:
         返回:
             bool: 是否成功
         """
-        if not self._sync_mode_enabled:
+        # 检查当前实际的同步模式状态
+        try:
+            settings = self.world.get_settings()
+            is_sync = settings.synchronous_mode
+        except:
+            is_sync = self._sync_mode_enabled
+        
+        print(f"  ⏳ 等待传感器就绪（同步模式: {is_sync}, tick次数: {self._sensor_init_ticks}）...")
+        
+        if not is_sync:
             time.sleep(1.0)
+            print(f"  ✅ 传感器就绪（异步模式）")
             return True
         
         start_time = time.time()
@@ -338,10 +383,13 @@ class CarlaResourceManagerV2:
                 self.world.tick()
                 time.sleep(0.05)
             
+            print(f"  ✅ 传感器就绪（已执行 {self._sensor_init_ticks} 次 tick）")
             return True
             
         except Exception as e:
             print(f"⚠️ 传感器初始化异常: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def create_all(self, spawn_transform: carla.Transform,
@@ -462,6 +510,8 @@ class CarlaResourceManagerV2:
         
         参数:
             restore_original_mode: 是否恢复到进入时的同步模式
+            
+        修复：增加等待时间，确保 CARLA 服务器有足够时间处理
         """
         with self._state_lock:
             if self._state == ResourceState.DESTROYING:
@@ -475,21 +525,26 @@ class CarlaResourceManagerV2:
         
         # 2. 切换到异步模式（关键！避免 tick 死锁）
         if was_sync:
-            self._set_sync_mode(False, wait_time=0.3)
+            self._set_sync_mode(False, wait_time=1.0)  # 增加等待时间
         
-        # 3. 按顺序销毁资源
+        # 3. 按顺序销毁资源，每个资源销毁后等待
         self._destroy_collision_sensor()
+        time.sleep(0.3)
+        
         self._destroy_camera()
+        time.sleep(0.3)
+        
         self._destroy_vehicle()
+        time.sleep(0.3)
         
         # 4. 等待 CARLA 处理销毁请求
-        time.sleep(0.5)
+        time.sleep(1.0)  # 增加到 1 秒
         
         # 5. 恢复同步模式
         if restore_original_mode and self._original_sync_mode is not None:
-            self._set_sync_mode(self._original_sync_mode)
+            self._set_sync_mode(self._original_sync_mode, wait_time=1.0)
         elif was_sync:
-            self._set_sync_mode(True)
+            self._set_sync_mode(True, wait_time=1.0)
         
         with self._state_lock:
             self._state = ResourceState.IDLE
