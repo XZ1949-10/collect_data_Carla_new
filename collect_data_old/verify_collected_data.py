@@ -562,7 +562,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='验证CARLA收集的数据')
-    parser.add_argument('--data-path', default='E://carla_data_lastnew', 
+    parser.add_argument('--data-path', default='E://datasets//ClearSunset', 
                        help='数据目录路径')
     parser.add_argument('--preview-only', action='store_true',
                        help='仅预览不满足条件的文件，不实际删除')

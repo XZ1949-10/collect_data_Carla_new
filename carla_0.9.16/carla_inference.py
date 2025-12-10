@@ -450,7 +450,7 @@ def main():
     parser = argparse.ArgumentParser(description='Carla自动驾驶模型实时推理（模块化版本）')
     
     # 模型参数
-    parser.add_argument('--model-path', type=str, default='./model/ddp_6gpu_4_best.pth',
+    parser.add_argument('--model-path', type=str, default='./model/ddp_6gpu_5_best.pth',
                         help='训练好的模型权重路径')
     parser.add_argument('--net-structure', type=int, default=2,
                         help='网络结构类型 (1|2|3)')
@@ -468,9 +468,9 @@ def main():
                         help='车辆类型')
     
     # 路线规划参数
-    parser.add_argument('--spawn-index', type=int, default=40,
+    parser.add_argument('--spawn-index', type=int, default=1,
                         help='起点索引')
-    parser.add_argument('--dest-index', type=int, default=147,
+    parser.add_argument('--dest-index', type=int, default=189,
                         help='终点索引')
     parser.add_argument('--list-spawns', action='store_true',
                         help='列出所有生成点位置后退出')

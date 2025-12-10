@@ -24,7 +24,7 @@
 
 # # 命令行模式
 # python collect_data/balance_data_selector.py --source E:/carla_data1,E:/carla_data2 --output E:/selected_data
-
+#  E:\datasets\ClearNoon,E:\datasets\ClearSunset,E:\datasets\CloudyNoonE:\datasets\HardRainNoon,E:\datasets\SoftRainNoon,E:\datasets\WetNoon
 # # 仅分析不复制
 # python collect_data/balance_data_selector.py --source E:/carla_data1,E:/carla_data2 --analyze-only
 
