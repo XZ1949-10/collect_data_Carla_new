@@ -174,6 +174,9 @@ class NPCConfig:
     vehicle_filter: str = 'vehicle.*'
     four_wheels_only: bool = True
     use_back_spawn_points: bool = True
+    # NPC车辆行为参数
+    vehicle_distance: float = 3.0  # 跟车距离（米），与前车保持的最小距离
+    vehicle_speed_difference: float = 30.0  # 速度差异百分比，相对于限速的随机偏差范围
     # 行人配置
     num_walkers: int = 0
     walker_filter: str = 'walker.pedestrian.*'

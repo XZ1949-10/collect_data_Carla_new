@@ -101,7 +101,9 @@ class NPCManager:
                 ignore_walkers=config.get_effective_ignore_walkers(),
                 vehicle_filter=config.vehicle_filter,
                 four_wheels_only=config.four_wheels_only,
-                use_back_spawn_points=config.use_back_spawn_points
+                use_back_spawn_points=config.use_back_spawn_points,
+                vehicle_distance=config.vehicle_distance,
+                vehicle_speed_difference=config.vehicle_speed_difference
             )
         
         if config.num_walkers > 0:
@@ -119,7 +121,9 @@ class NPCManager:
                        ignore_walkers: bool = False,
                        vehicle_filter: str = 'vehicle.*',
                        four_wheels_only: bool = True,
-                       use_back_spawn_points: bool = True) -> int:
+                       use_back_spawn_points: bool = True,
+                       vehicle_distance: float = 3.0,
+                       vehicle_speed_difference: float = 30.0) -> int:
         """生成 NPC 车辆"""
         print(f"\n🚗 正在生成 {num} 辆 NPC 车辆...")
         
@@ -153,12 +157,17 @@ class NPCManager:
             if vehicle:
                 vehicle.set_autopilot(True, tm.get_port())
                 
+                # 交通规则设置
                 if ignore_lights:
                     tm.ignore_lights_percentage(vehicle, 100)
                 if ignore_signs:
                     tm.ignore_signs_percentage(vehicle, 100)
                 if ignore_walkers:
                     tm.ignore_walkers_percentage(vehicle, 100)
+                
+                # 行为参数设置
+                tm.distance_to_leading_vehicle(vehicle, vehicle_distance)
+                tm.vehicle_percentage_speed_difference(vehicle, vehicle_speed_difference)
                 
                 self._vehicles.append(vehicle)
                 spawned += 1

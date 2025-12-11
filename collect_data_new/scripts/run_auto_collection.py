@@ -217,6 +217,8 @@ def create_collector_config(config: dict, args) -> CollectorConfig:
         vehicles_ignore_lights=npc_behavior.get('ignore_traffic_lights', True),
         vehicles_ignore_signs=npc_behavior.get('ignore_signs', True),
         vehicles_ignore_walkers=npc_behavior.get('ignore_walkers', False),
+        vehicle_distance=npc_behavior.get('vehicle_distance', 3.0),
+        vehicle_speed_difference=npc_behavior.get('vehicle_speed_difference', 30.0),
     )
     
     # 天气配置
