@@ -397,6 +397,8 @@ class CollectorConfig:
             host=data.get('host', 'localhost'),
             port=data.get('port', 2000),
             town=data.get('town', 'Town01'),
+            # 交通规则配置
+            obey_traffic_rules=data.get('obey_traffic_rules', False),
             ignore_traffic_lights=data.get('ignore_traffic_lights', True),
             ignore_signs=data.get('ignore_signs', True),
             ignore_vehicles_percentage=data.get('ignore_vehicles_percentage', 80),

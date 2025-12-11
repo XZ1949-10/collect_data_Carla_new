@@ -84,7 +84,7 @@
         "_comment_max_distance": "路线最大长度(米)，过长的路线会被过滤",
         "target_routes_ratio": 1.0,
         "_comment_target_routes_ratio": "目标路线数量比例(0-1)，1.0=使用所有有效路线",
-        "max_candidates_to_analyze": 60000,
+        "max_candidates_to_analyze": 6000,
         "_comment_max_candidates_to_analyze": "最大候选路线分析数量，越大越全面但越慢",
         "overlap_threshold": 0.6,
         "_comment_overlap_threshold": "路线重叠阈值(0-1)，超过此值的重复路线会被过滤",
@@ -163,7 +163,7 @@
                 "decay_frames": [20, 30],
                 "idle_frames": [5, 15],
                 "strength_percent": 100,
-                "probability_percent": 35
+                "probability_percent": 25
             },
             "drift": {
                 "_comment": "缓慢漂移：正弦波形，模拟持续的方向偏移",
@@ -171,7 +171,7 @@
                 "decay_frames": [20, 30],
                 "idle_frames": [5, 15],
                 "strength_percent": 100,
-                "probability_percent": 20
+                "probability_percent": 25
             },
             "jitter": {
                 "_comment": "高频抖动：随机序列，模拟路面颠簸或方向盘抖动",
@@ -179,7 +179,7 @@
                 "decay_frames": [20, 30],
                 "idle_frames": [5, 15],
                 "strength_percent": 100,
-                "probability_percent": 20
+                "probability_percent": 25
             }
         }
     },

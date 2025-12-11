@@ -73,6 +73,40 @@ class DataSaver:
         
         return filepath
     
+    def _save_segment_array(self, rgb_array: np.ndarray, targets_array: np.ndarray,
+                            command: float, suffix: str = '') -> Optional[str]:
+        """
+        直接保存 numpy 数组到 H5 文件（内部方法，避免列表转换开销）
+        
+        参数:
+            rgb_array: RGB图像数组 (N, H, W, C)
+            targets_array: 目标数据数组 (N, 25)
+            command: 导航命令
+            suffix: 文件名后缀
+            
+        返回:
+            str: 保存的文件路径，失败返回None
+        """
+        if rgb_array.shape[0] == 0:
+            return None
+        
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        command_name = COMMAND_NAMES.get(int(command), 'Unknown')
+        filename = f"carla_cmd{int(command)}_{command_name}_{timestamp}{suffix}.h5"
+        filepath = os.path.join(self.save_path, filename)
+        
+        with h5py.File(filepath, 'w') as hf:
+            hf.create_dataset('rgb', data=rgb_array, compression='gzip', compression_opts=4)
+            hf.create_dataset('targets', data=targets_array, compression='gzip', compression_opts=4)
+        
+        file_size_mb = os.path.getsize(filepath) / 1024 / 1024
+        print(f"  ✓ {filename} ({rgb_array.shape[0]} 样本, {file_size_mb:.2f} MB)")
+        
+        self.total_saved_segments += 1
+        self.total_saved_frames += rgb_array.shape[0]
+        
+        return filepath
+    
     def save_segment_chunked(self, rgb_list: List[np.ndarray], targets_list: List[np.ndarray],
                              command: float) -> List[str]:
         """
@@ -103,8 +137,9 @@ class DataSaver:
             chunk_rgb = rgb_array[start_idx:end_idx]
             chunk_targets = targets_array[start_idx:end_idx]
             
-            filepath = self.save_segment(
-                chunk_rgb.tolist(), chunk_targets.tolist(),
+            # 直接使用 numpy 数组切片，避免 tolist() 的性能开销
+            filepath = self._save_segment_array(
+                chunk_rgb, chunk_targets,
                 command, f"_part{chunk_idx+1:03d}"
             )
             if filepath:

@@ -967,7 +967,16 @@ class MultiWeatherCollector:
                 import traceback
                 traceback.print_exc()
             finally:
+                # 完整的资源清理
+                collector._cleanup_inner_collector()
                 collector._cleanup_npcs()
+                
+                # 恢复异步模式
+                if collector._sync_manager is not None:
+                    try:
+                        collector._sync_manager.ensure_async_mode(wait=True)
+                    except Exception as cleanup_error:
+                        print(f"⚠️ 恢复异步模式失败: {cleanup_error}")
         
         self._print_multi_weather_summary(base_save_path)
     
@@ -1031,7 +1040,16 @@ def run_single_weather_collection(config: CollectorConfig, weather_name: str,
         )
         return collector.total_frames_collected
     finally:
+        # 完整的资源清理
+        collector._cleanup_inner_collector()
         collector._cleanup_npcs()
+        
+        # 恢复异步模式
+        if collector._sync_manager is not None:
+            try:
+                collector._sync_manager.ensure_async_mode(wait=True)
+            except Exception as cleanup_error:
+                print(f"⚠️ 恢复异步模式失败: {cleanup_error}")
 
 
 def run_multi_weather_collection(config: CollectorConfig, weather_list: List[str],

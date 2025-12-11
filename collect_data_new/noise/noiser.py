@@ -287,10 +287,41 @@ class Noiser:
             self.jitter_index += 1
             return value
         return 0.0
+    
+    def _copy_action(self, action):
+        """
+        创建 action 对象的副本
+        
+        支持 carla.VehicleControl 和类似的对象。
+        
+        参数:
+            action: 原始控制对象
+            
+        返回:
+            控制对象的副本
+        """
+        try:
+            # 尝试导入 carla 并创建新的 VehicleControl
+            import carla
+            new_action = carla.VehicleControl()
+            new_action.steer = action.steer
+            new_action.throttle = action.throttle
+            new_action.brake = action.brake
+            new_action.hand_brake = getattr(action, 'hand_brake', False)
+            new_action.reverse = getattr(action, 'reverse', False)
+            new_action.manual_gear_shift = getattr(action, 'manual_gear_shift', False)
+            new_action.gear = getattr(action, 'gear', 0)
+            return new_action
+        except ImportError:
+            # carla 不可用时，使用简单的属性复制
+            import copy
+            return copy.copy(action)
 
     def compute_noise(self, action, speed: float) -> tuple:
         """
         计算并应用噪声到控制信号
+        
+        注意：此方法会创建 action 的副本，不会修改原始对象。
         
         返回:
             tuple: (noisy_action, is_recovering, is_noise_active)
@@ -315,36 +346,40 @@ class Noiser:
         is_recovering = (self.state == 'decay')
         is_noise_active = (self.state == 'noise')
         
+        # 创建 action 的副本，避免修改原始对象
+        # 这对于保持 _expert_control 不被污染很重要
+        noisy_action = self._copy_action(action)
+        
         if self.noise_type == 'Spike':
             if is_noisy:
-                noisy_steer = action.steer + noise_value
-                action.steer = max(-1.0, min(1.0, noisy_steer))
-            return action, is_recovering, is_noise_active
+                noisy_steer = noisy_action.steer + noise_value
+                noisy_action.steer = max(-1.0, min(1.0, noisy_steer))
+            return noisy_action, is_recovering, is_noise_active
         
         elif self.noise_type == 'Throttle':
             if is_noisy:
                 if noise_value > 0:
-                    if action.brake > 0:
-                        brake_reduction = min(action.brake, noise_value)
-                        action.brake = max(0.0, action.brake - brake_reduction)
+                    if noisy_action.brake > 0:
+                        brake_reduction = min(noisy_action.brake, noise_value)
+                        noisy_action.brake = max(0.0, noisy_action.brake - brake_reduction)
                         remaining = noise_value - brake_reduction
                         if remaining > 0:
-                            action.throttle = max(0.0, min(1.0, action.throttle + remaining))
+                            noisy_action.throttle = max(0.0, min(1.0, noisy_action.throttle + remaining))
                     else:
-                        action.throttle = max(0.0, min(1.0, action.throttle + noise_value))
+                        noisy_action.throttle = max(0.0, min(1.0, noisy_action.throttle + noise_value))
                 else:
                     abs_noise = abs(noise_value)
-                    if action.throttle > 0:
-                        throttle_reduction = min(action.throttle, abs_noise)
-                        action.throttle = max(0.0, action.throttle - throttle_reduction)
+                    if noisy_action.throttle > 0:
+                        throttle_reduction = min(noisy_action.throttle, abs_noise)
+                        noisy_action.throttle = max(0.0, noisy_action.throttle - throttle_reduction)
                         remaining = abs_noise - throttle_reduction
                         if remaining > 0:
-                            action.brake = max(0.0, min(1.0, action.brake + remaining))
+                            noisy_action.brake = max(0.0, min(1.0, noisy_action.brake + remaining))
                     else:
-                        action.brake = max(0.0, min(1.0, action.brake + abs_noise))
-            return action, is_recovering, is_noise_active
+                        noisy_action.brake = max(0.0, min(1.0, noisy_action.brake + abs_noise))
+            return noisy_action, is_recovering, is_noise_active
         
-        return action, False, False
+        return noisy_action, False, False
     
     def get_current_mode(self) -> Optional[str]:
         """获取当前噪声模式"""
