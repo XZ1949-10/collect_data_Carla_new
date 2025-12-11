@@ -26,9 +26,17 @@
 
 ### 推理效果
 
-| 左转 | 右转 | 直行 |
-|:---:|:---:|:---:|
-| https://github.com/user-attachments/assets/2b747f1f-049f-4c86-9b5d-d70f5220c136 | https://github.com/user-attachments/assets/79f28b71-d242-4910-922b-048b8a1816fc | https://github.com/user-attachments/assets/c659094c-47b0-4d47-a513-e5332857a732 |
+**左转场景**
+
+https://github.com/user-attachments/assets/2b747f1f-049f-4c86-9b5d-d70f5220c136
+
+**右转场景**
+
+https://github.com/user-attachments/assets/79f28b71-d242-4910-922b-048b8a1816fc
+
+**直行场景**
+
+https://github.com/user-attachments/assets/c659094c-47b0-4d47-a513-e5332857a732
 
 ### DAgger 噪声注入
 
