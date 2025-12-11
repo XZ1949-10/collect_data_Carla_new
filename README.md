@@ -6,7 +6,7 @@
 
 *End-to-End Autonomous Driving via Conditional Imitation Learning*
 
-<img src="carla_0.9.16.png" alt="Visualization Interface" width="800"/>
+<img src="logo.png" alt="Visualization Interface" width="800"/>
 
 <br/>
 
@@ -98,7 +98,31 @@ https://github.com/user-attachments/assets/2b613e98-06e3-4367-8ff4-cc6aa3442a33
 ```
 CARLA-CIL/
 │
-├── 📦 collect_data_old/              # 数据收集模块
+├── 📦 collect_data_new/              # 数据收集模块（重构版 v2.0）
+│   ├── collectors/                   # 收集器实现
+│   │   ├── auto_collector.py         # 全自动数据收集器
+│   │   ├── command_based.py          # 按命令分类收集器
+│   │   └── interactive.py            # 交互式收集器
+│   ├── core/                         # 核心模块
+│   │   ├── sync_mode_manager.py      # 同步模式管理器（v2.0 主动验证）
+│   │   ├── weather_manager.py        # 天气管理（22种预设）
+│   │   ├── route_planner.py          # 路线规划器
+│   │   ├── npc_manager.py            # NPC 管理
+│   │   └── collision_recovery.py     # 碰撞恢复
+│   ├── detection/                    # 检测模块
+│   │   ├── anomaly_detector.py       # 异常检测
+│   │   └── collision_handler.py      # 碰撞处理
+│   ├── noise/noiser.py               # 噪声注入（4种模式）
+│   ├── utils/                        # 工具模块
+│   │   ├── report_generator.py       # 报告生成（含图表）
+│   │   ├── balance_selector.py       # 数据平衡
+│   │   └── carla_visualizer.py       # 可视化工具
+│   └── scripts/                      # 运行脚本
+│       ├── run_auto_collection.py    # 自动收集入口
+│       ├── verify_data.py            # 数据验证
+│       └── visualize_data.py         # 数据可视化
+│
+├── 📦 collect_data_old/              # 数据收集模块（旧版）
 │   ├── auto_full_town_collection.py  # 全自动数据收集器
 │   ├── base_collector.py             # 收集器基类
 │   ├── noiser.py                     # 噪声注入（4种模式）
@@ -231,6 +255,11 @@ CarlaUE4.exe -quality-level=Low
 ### 2️⃣ 数据收集
 
 ```bash
+# 推荐：使用重构版（v2.0）
+cd collect_data_new/scripts
+python run_auto_collection.py
+
+# 或使用旧版
 cd collect_data_old
 python auto_full_town_collection.py
 ```
@@ -259,7 +288,7 @@ python carla_inference.py --model model/your_model.pth --town Town01
 
 ### 配置文件
 
-编辑 `collect_data_old/auto_collection_config.json`：
+编辑 `collect_data_new/config/auto_collection_config.json`（推荐）或 `collect_data_old/auto_collection_config.json`：
 
 ```json
 {
@@ -302,15 +331,25 @@ data_cmd{command}_{timestamp}.h5
 ### 数据工具
 
 ```bash
-# 数据验证
-python verify_collected_data.py --path /path/to/data --min-frames 200
+# 数据验证（新版，支持报告生成和图表）
+cd collect_data_new/scripts
+python verify_data.py --path /path/to/data --min-frames 200
 
 # 数据可视化
-python visualize_h5_data.py --file data.h5
+python visualize_data.py --file data.h5
 
-# 数据平衡 可以多文件夹内进行平衡
-python balance_data_selector.py --source /path/to/data --output /path/to/balanced
+# 数据平衡（可以多文件夹内进行平衡）
+python run_balance_selector.py --source /path/to/data --output /path/to/balanced
 ```
+
+### v2.0 新特性
+
+| 特性 | 说明 |
+|:---|:---|
+| 🔄 **同步模式管理器** | 主动验证机制，自动恢复，避免 CARLA 卡死 |
+| 🌤️ **天气管理器** | 支持 22 种天气预设，多天气批量收集 |
+| 📊 **报告生成器** | 自动生成验证报告、质量评分、可视化图表 |
+| 🛡️ **资源生命周期管理** | 统一管理车辆/传感器创建销毁，防止资源泄漏 |
 
 ---
 

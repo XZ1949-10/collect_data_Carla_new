@@ -44,7 +44,7 @@
             "_comment_ignore_signs": "NPC车辆是否忽略交通标志（仅当obey_traffic_rules=false时生效）",
             "ignore_walkers": false,
             "_comment_ignore_walkers": "NPC车辆是否忽略行人，false=会避让行人（仅当obey_traffic_rules=false时生效）",
-            "vehicle_distance": 3.0,
+            "vehicle_distance": 5.0,
             "_comment_vehicle_distance": "跟车距离（米），NPC车辆与前车保持的最小距离，值越大越安全但交通流量越低",
             "vehicle_speed_difference": 30.0,
             "_comment_vehicle_speed_difference": "速度差异百分比(0-100)，NPC车辆相对于道路限速的随机偏差范围，0=严格按限速，30=在限速±30%范围内随机"
