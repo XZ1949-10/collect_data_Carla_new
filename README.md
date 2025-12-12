@@ -39,7 +39,7 @@ https://github.com/user-attachments/assets/2b747f1f-049f-4c86-9b5d-d70f5220c136
 
 **右转场景**
 
-https://github.com/user-attachments/assets/79f28b71-d242-4910-922b-048b8a1816fc
+https://github.com/user-attachments/assets/4d78d485-f5af-4d87-bbc6-5c10774e6bc0
 
 </td>
 <td align="center" width="33%">
