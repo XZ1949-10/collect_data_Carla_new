@@ -70,7 +70,7 @@ def signal_handler(signum, frame):
 from collect_data_new.config import (
     CollectorConfig, NoiseConfig, AnomalyConfig, NPCConfig,
     WeatherConfig, MultiWeatherConfig, RouteConfig,
-    CollisionRecoveryConfig, AdvancedConfig
+    CollisionRecoveryConfig, AdvancedConfig, TrafficLightConfig
 )
 from collect_data_new.collectors.auto_collector import (
     AutoFullTownCollector, MultiWeatherCollector,
@@ -146,9 +146,13 @@ def load_config_file(config_path: str) -> dict:
                     else:
                         default_config[section] = loaded[section]
             
-            print(f"✅ 已加载配置: {config_path}")
+            print(f"✅ 配置来源: JSON文件 ({config_path})")
         except Exception as e:
-            print(f"⚠️ 加载配置失败: {e}，使用默认配置")
+            print(f"⚠️ 加载配置失败: {e}")
+            print(f"⚠️ 配置来源: 默认配置")
+    else:
+        print(f"⚠️ 配置文件不存在: {config_path}")
+        print(f"⚠️ 配置来源: 默认配置")
     
     return default_config
 
@@ -173,6 +177,7 @@ def create_collector_config(config: dict, args) -> CollectorConfig:
     town = args.town or carla.get('town', 'Town01')
     target_speed = args.target_speed or collection.get('target_speed_kmh', 10.0)
     fps = args.fps or collection.get('simulation_fps', 20)
+    realtime_sync = collection.get('realtime_sync', False)  # 是否启用实时同步
     frames_per_route = args.frames_per_route or collection.get('frames_per_route', 1000)
     save_path = args.save_path or collection.get('save_path', './auto_collected_data')
     
@@ -228,6 +233,15 @@ def create_collector_config(config: dict, args) -> CollectorConfig:
         custom=weather_cfg.get('custom')
     )
     
+    # 红绿灯时间配置
+    traffic_light_cfg = config.get('traffic_light_settings', {})
+    traffic_light = TrafficLightConfig(
+        enabled=traffic_light_cfg.get('enabled', False),
+        red_time=traffic_light_cfg.get('red_time', 5.0),
+        green_time=traffic_light_cfg.get('green_time', 10.0),
+        yellow_time=traffic_light_cfg.get('yellow_time', 2.0),
+    )
+    
     # 多天气配置
     multi_weather = MultiWeatherConfig(
         enabled=multi_weather_cfg.get('enabled', False),
@@ -275,6 +289,7 @@ def create_collector_config(config: dict, args) -> CollectorConfig:
         ignore_vehicles_percentage=traffic.get('ignore_vehicles_percentage', 80),
         target_speed=target_speed,
         simulation_fps=fps,
+        realtime_sync=realtime_sync,
         save_path=save_path,
         frames_per_route=frames_per_route,
         auto_save_interval=collection.get('auto_save_interval', 200),
@@ -283,6 +298,7 @@ def create_collector_config(config: dict, args) -> CollectorConfig:
         anomaly=anomaly,
         npc=npc,
         weather=weather,
+        traffic_light=traffic_light,
         multi_weather=multi_weather,
         route=route,
         collision_recovery=collision_recovery,
@@ -384,22 +400,44 @@ def main():
     # 确定天气列表
     weather_list = None
     
+    # 打印多天气配置状态
+    print(f"\n📋 多天气配置状态:")
+    print(f"   - multi_weather.enabled = {collector_config.multi_weather.enabled}")
+    print(f"   - multi_weather.weather_preset = '{collector_config.multi_weather.weather_preset}'")
+    print(f"   - multi_weather.custom_weather_list = {collector_config.multi_weather.custom_weather_list}")
+    print(f"   - 命令行 --multi-weather = {args.multi_weather}")
+    print(f"   - 命令行 --weather-list = {args.weather_list}")
+    
     # 优先级: 命令行 --weather-list > 命令行 --multi-weather > 配置文件
     if args.weather_list:
         weather_list = args.weather_list
-        print(f"\n🌤️ 使用命令行指定的天气列表: {weather_list}")
+        print(f"\n🌤️ 天气来源: 命令行 --weather-list")
+        print(f"   天气列表: {weather_list}")
     elif args.multi_weather:
         weather_list = get_weather_list(args.multi_weather)
-        print(f"\n🌤️ 使用天气预设 '{args.multi_weather}': {weather_list}")
+        print(f"\n🌤️ 天气来源: 命令行 --multi-weather (预设: {args.multi_weather})")
+        print(f"   天气列表: {weather_list}")
     elif collector_config.multi_weather.enabled:
         weather_list = collector_config.multi_weather.get_weather_list()
-        print(f"\n🌤️ 使用配置文件的多天气设置: {weather_list}")
+        print(f"\n🌤️ 天气来源: JSON配置文件 (multi_weather_settings)")
+        print(f"   天气列表: {weather_list}")
+    else:
+        print(f"\n🌤️ 天气来源: 单天气模式 (multi_weather.enabled=False)")
+        print(f"   使用天气: {collector_config.weather.preset}")
     
     # 运行收集
     save_path = collector_config.save_path
     
+    # 调试信息
+    print(f"\n🔍 调试信息:")
+    print(f"   - weather_list = {weather_list}")
+    print(f"   - weather_list 长度 = {len(weather_list) if weather_list else 0}")
+    print(f"   - save_path = {save_path}")
+    
     if weather_list and len(weather_list) > 1:
         # 多天气收集
+        print(f"\n✅ 收集模式: 多天气轮换 ({len(weather_list)} 种天气)")
+        print(f"   天气列表: {weather_list}")
         run_multi_weather_collection(
             config=collector_config,
             weather_list=weather_list,
@@ -408,6 +446,9 @@ def main():
         )
     else:
         # 单天气收集
+        print(f"\n✅ 收集模式: 单天气")
+        if weather_list:
+            print(f"   ⚠️ weather_list 只有 {len(weather_list)} 个元素: {weather_list}")
         collector = AutoFullTownCollector(collector_config)
         collector.run(
             save_path=save_path,

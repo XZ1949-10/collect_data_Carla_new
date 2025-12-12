@@ -453,8 +453,12 @@ class RoutePlanner:
                 return None
             
             # 验证 spawn_points 数量是否一致
+            # 旧版缓存可能没有 num_spawn_points 字段，此时强制重新生成以确保兼容性
             cached_spawn_count = config.get('num_spawn_points', 0)
-            if cached_spawn_count > 0 and cached_spawn_count != len(self.spawn_points):
+            if cached_spawn_count == 0:
+                print(f"⚠️ 缓存文件缺少 num_spawn_points 字段（旧版缓存），重新生成以确保兼容性")
+                return None
+            if cached_spawn_count != len(self.spawn_points):
                 print(f"⚠️ spawn_points 数量不匹配 (缓存: {cached_spawn_count}, 当前: {len(self.spawn_points)})，重新生成")
                 return None
             

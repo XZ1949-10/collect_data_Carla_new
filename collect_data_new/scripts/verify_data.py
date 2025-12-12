@@ -27,8 +27,10 @@ from collect_data_new.config import COMMAND_NAMES
 class DataVerifier:
     """数据验证器"""
     
-    # 有效命令值
-    VALID_COMMANDS = {0, 2, 3, 4, 5}
+    # 有效命令值（与 COMMAND_NAMES 保持一致）
+    # 注意：命令0（VOID）在某些情况下可能出现，但不是有效的导航命令
+    # 2=Follow, 3=Left, 4=Right, 5=Straight
+    VALID_COMMANDS = {2, 3, 4, 5}
     
     def __init__(self, data_path: str):
         self.data_path = data_path

@@ -41,6 +41,16 @@ from .sync_mode_manager import (
     ResourceLifecycleHelper,
     CollectorLifecycleManager,
 )
+from .traffic_light_manager import (
+    TrafficLightManager,
+    TrafficLightTiming,
+    TrafficLightState,
+    TrafficLightInfo,
+    TRAFFIC_LIGHT_PRESETS,
+    get_traffic_light_presets,
+    create_traffic_light_manager,
+    configure_traffic_lights,
+)
 
 __all__ = [
     'BaseDataCollector',
@@ -67,4 +77,13 @@ __all__ = [
     'SyncMode',
     'ResourceLifecycleHelper',
     'CollectorLifecycleManager',
+    # 红绿灯管理
+    'TrafficLightManager',
+    'TrafficLightTiming',
+    'TrafficLightState',
+    'TrafficLightInfo',
+    'TRAFFIC_LIGHT_PRESETS',
+    'get_traffic_light_presets',
+    'create_traffic_light_manager',
+    'configure_traffic_lights',
 ]

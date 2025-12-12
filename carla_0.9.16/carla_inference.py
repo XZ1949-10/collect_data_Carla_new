@@ -35,6 +35,7 @@ from carla_image_processor import ImageProcessor
 from carla_vehicle_controller import VehicleController
 from carla_model_predictor import ModelPredictor
 from carla_vehicle_spawner import VehicleSpawner
+from carla_npc_manager import NPCManager, NPCConfig
 
 
 class CarlaInference:
@@ -58,7 +59,8 @@ class CarlaInference:
                  enable_post_processing=False,
                  post_processor_config=None,
                  enable_image_crop=True,
-                 visualization_mode='spectator'):
+                 visualization_mode='spectator',
+                 npc_config=None):
         """
         初始化推理器
         
@@ -74,6 +76,7 @@ class CarlaInference:
             visualization_mode (str): 可视化模式
                 - 'spectator': Spectator跟随模式（在CARLA UE4窗口中第三人称跟随）
                 - 'opencv': OpenCV独立窗口模式（旧模式，小弹窗）
+            npc_config (NPCConfig): NPC配置，None表示不生成NPC
         """
         # Carla连接参数
         self.host = host
@@ -111,6 +114,10 @@ class CarlaInference:
         
         # 可视化模式
         self.visualization_mode = visualization_mode
+        
+        # NPC配置
+        self.npc_config = npc_config
+        self.npc_manager = None
         
         # 组件模块
         self.sensor_manager = None
@@ -161,7 +168,21 @@ class CarlaInference:
             sampling_resolution=ROUTE_SAMPLING_RESOLUTION
         )
         
+        # 生成NPC（如果配置了）
+        if self.npc_config is not None:
+            self._spawn_npcs()
+        
         print("成功连接到Carla服务器！")
+    
+    def _spawn_npcs(self):
+        """生成NPC车辆和行人"""
+        if self.npc_config is None:
+            return
+        
+        print("\n正在生成NPC...")
+        self.npc_manager = NPCManager(self.client, self.world)
+        stats = self.npc_manager.spawn_all(self.npc_config)
+        print(f"NPC生成完成: {stats['vehicles_spawned']} 辆车, {stats['walkers_spawned']} 个行人\n")
         
     def spawn_vehicle(self, vehicle_filter='vehicle.tesla.model3', 
                       spawn_index=None, destination_index=None, max_retries=5):
@@ -190,6 +211,8 @@ class CarlaInference:
         # 如果是spectator模式，设置跟随
         if self.visualization_mode == VIS_MODE_SPECTATOR:
             self.visualizer.setup_spectator_mode(self.world, self.vehicle)
+            # 初始化路网数据（用于导航地图显示周围道路）
+            self.visualizer.init_road_network(self.world)
         
         return True
     
@@ -208,7 +231,18 @@ class CarlaInference:
             print("使用随机终点")
             if not self.navigation_planner.set_random_destination(self.vehicle):
                 print("⚠️ 警告：无法规划路线，将使用默认命令（跟车）")
+        
+        # 将路线数据传递给可视化器（用于路线图显示）
+        self._update_visualizer_route()
         print()
+    
+    def _update_visualizer_route(self):
+        """更新可视化器的路线数据"""
+        if self.navigation_planner is not None and hasattr(self.navigation_planner, '_route'):
+            route = self.navigation_planner._route
+            if route:
+                self.visualizer.set_route(route)
+                print(f"✅ 路线图已更新（{len(route)} 个路点）")
         
     def setup_sensors(self):
         """设置所有传感器"""
@@ -285,6 +319,8 @@ class CarlaInference:
                     if auto_replan:
                         print("正在重新规划路线...")
                         if self.navigation_planner.set_random_destination(self.vehicle):
+                            # 更新可视化器的路线数据
+                            self._update_visualizer_route()
                             print("新路线规划成功，继续行驶\n")
                         else:
                             print("⚠️ 无法规划新路线，停止推理\n")
@@ -335,12 +371,22 @@ class CarlaInference:
                     route_info = self.navigation_planner.get_route_info(self.vehicle)
                     # 获取模型实际看到的图像（裁剪+缩放后的 200x88）
                     model_input_image = self.image_processor.get_processed_image(current_image)
+                    
+                    # 获取车辆位置和朝向（用于路线图）
+                    vehicle_transform = self.vehicle.get_transform()
+                    vehicle_location = (vehicle_transform.location.x, vehicle_transform.location.y)
+                    vehicle_yaw = vehicle_transform.rotation.yaw
+                    current_waypoint_index = self.navigation_planner._current_waypoint_index
+                    
                     self.visualizer.visualize(
                         model_input_image, 
                         control_result, 
                         current_speed, 
                         route_info,
-                        self.frame_count
+                        self.frame_count,
+                        vehicle_location=vehicle_location,
+                        vehicle_yaw=vehicle_yaw,
+                        current_waypoint_index=current_waypoint_index
                     )
                 
                 # 帧率控制：等待到目标帧时间，确保模拟时间与现实时间1:1同步
@@ -424,6 +470,10 @@ class CarlaInference:
             
         if self.vehicle is not None:
             self.vehicle.destroy()
+        
+        # 清理NPC
+        if self.npc_manager is not None:
+            self.npc_manager.cleanup_all()
             
         if self.world is not None:
             settings = self.world.get_settings()
@@ -450,7 +500,7 @@ def main():
     parser = argparse.ArgumentParser(description='Carla自动驾驶模型实时推理（模块化版本）')
     
     # 模型参数
-    parser.add_argument('--model-path', type=str, default='./model/ddp_6gpu_5_best.pth',
+    parser.add_argument('--model-path', type=str, default='./model/ddp_6gpu_6_best.pth',
                         help='训练好的模型权重路径')
     parser.add_argument('--net-structure', type=int, default=2,
                         help='网络结构类型 (1|2|3)')
@@ -470,13 +520,13 @@ def main():
     # 路线规划参数
     parser.add_argument('--spawn-index', type=int, default=1,
                         help='起点索引')
-    parser.add_argument('--dest-index', type=int, default=189,
+    parser.add_argument('--dest-index', type=int, default=41,
                         help='终点索引')
     parser.add_argument('--list-spawns', action='store_true',
                         help='列出所有生成点位置后退出')
     
     # 运行参数
-    parser.add_argument('--duration', type=int, default=60,
+    parser.add_argument('--duration', type=int, default=-1,
                         help='运行时长（秒），-1表示无限运行')
     
     # 功能开关
@@ -492,12 +542,38 @@ def main():
                         choices=['spectator', 'opencv'],
                         help='可视化模式: spectator=CARLA窗口第三人称跟随(推荐), opencv=独立小窗口(旧模式)')
     
+    # NPC参数
+    parser.add_argument('--npc-vehicles', type=int, default=0,
+                        help='NPC车辆数量，0表示不生成')
+    parser.add_argument('--npc-walkers', type=int, default=30,
+                        help='NPC行人数量，0表示不生成')
+    parser.add_argument('--npc-ignore-lights', type=str2bool, default=False,
+                        help='NPC车辆是否忽略红绿灯（默认遵守）')
+    parser.add_argument('--npc-ignore-signs', type=str2bool, default=True,
+                        help='NPC车辆是否忽略交通标志（默认遵守）')
+    parser.add_argument('--npc-vehicle-distance', type=float, default=5.0,
+                        help='NPC车辆跟车距离（米）')
+    parser.add_argument('--npc-speed-diff', type=float, default=30.0,
+                        help='NPC车辆速度差异百分比')
+    
     args = parser.parse_args()
     
     # 将相对路径转换为基于脚本目录的绝对路径
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if not os.path.isabs(args.model_path):
         args.model_path = os.path.join(script_dir, args.model_path)
+    
+    # 创建NPC配置（如果需要）
+    npc_config = None
+    if args.npc_vehicles > 0 or args.npc_walkers > 0:
+        npc_config = NPCConfig(
+            num_vehicles=args.npc_vehicles,
+            num_walkers=args.npc_walkers,
+            vehicles_ignore_lights=args.npc_ignore_lights,
+            vehicles_ignore_signs=args.npc_ignore_signs,
+            vehicle_distance=args.npc_vehicle_distance,
+            vehicle_speed_difference=args.npc_speed_diff
+        )
     
     # 创建推理器
     inferencer = CarlaInference(
@@ -508,7 +584,8 @@ def main():
         gpu_id=args.gpu,
         enable_post_processing=args.post_processing,
         enable_image_crop=args.image_crop,
-        visualization_mode=args.vis_mode
+        visualization_mode=args.vis_mode,
+        npc_config=npc_config
     )
     
     try:

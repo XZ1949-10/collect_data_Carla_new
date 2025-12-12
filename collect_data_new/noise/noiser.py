@@ -293,6 +293,7 @@ class Noiser:
         创建 action 对象的副本
         
         支持 carla.VehicleControl 和类似的对象。
+        使用模块级缓存的 carla 引用，避免每帧重复导入。
         
         参数:
             action: 原始控制对象
@@ -300,10 +301,16 @@ class Noiser:
         返回:
             控制对象的副本
         """
-        try:
-            # 尝试导入 carla 并创建新的 VehicleControl
-            import carla
-            new_action = carla.VehicleControl()
+        # 使用模块级缓存的 carla 引用
+        if not hasattr(self, '_carla_module'):
+            try:
+                import carla
+                self._carla_module = carla
+            except ImportError:
+                self._carla_module = None
+        
+        if self._carla_module is not None:
+            new_action = self._carla_module.VehicleControl()
             new_action.steer = action.steer
             new_action.throttle = action.throttle
             new_action.brake = action.brake
@@ -312,10 +319,19 @@ class Noiser:
             new_action.manual_gear_shift = getattr(action, 'manual_gear_shift', False)
             new_action.gear = getattr(action, 'gear', 0)
             return new_action
-        except ImportError:
-            # carla 不可用时，使用简单的属性复制
-            import copy
-            return copy.copy(action)
+        else:
+            # carla 不可用时，手动创建类似对象
+            class VehicleControlCopy:
+                pass
+            new_action = VehicleControlCopy()
+            new_action.steer = action.steer
+            new_action.throttle = action.throttle
+            new_action.brake = action.brake
+            new_action.hand_brake = getattr(action, 'hand_brake', False)
+            new_action.reverse = getattr(action, 'reverse', False)
+            new_action.manual_gear_shift = getattr(action, 'manual_gear_shift', False)
+            new_action.gear = getattr(action, 'gear', 0)
+            return new_action
 
     def compute_noise(self, action, speed: float) -> tuple:
         """
@@ -329,11 +345,13 @@ class Noiser:
         self.frame_counter += 1
         
         if self.noise_type == 'None':
-            return action, False, False
+            # 即使不添加噪声，也返回副本以保持一致性
+            return self._copy_action(action), False, False
         
         # 边界检查：超出 segment 范围时停止噪声
         if self.frame_counter > self.segment_frames:
-            return action, False, False
+            # 返回副本而非原始对象，避免调用者意外修改原始action
+            return self._copy_action(action), False, False
         
         self._update_state()
         

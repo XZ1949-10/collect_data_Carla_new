@@ -35,6 +35,8 @@ from ..core import (
     SyncModeManager,
     SyncModeConfig,
     ResourceLifecycleHelper,
+    # 红绿灯管理
+    TrafficLightManager,
 )
 from ..utils import FrameVisualizer
 from .command_based import CommandBasedCollector
@@ -76,6 +78,9 @@ class AutoFullTownCollector:
         # 同步模式管理器
         self._sync_manager: Optional[SyncModeManager] = None
         self._lifecycle_helper: Optional[ResourceLifecycleHelper] = None
+        
+        # 红绿灯管理器
+        self._traffic_light_manager: Optional[TrafficLightManager] = None
         
         # 从配置读取参数
         self.frames_per_route = self.config.frames_per_route
@@ -148,6 +153,7 @@ class AutoFullTownCollector:
         # 初始化模块
         self._route_planner = RoutePlanner(self.world, self.spawn_points, town=self.config.town)
         self._weather_manager = WeatherManager(self.world)
+        self._traffic_light_manager = TrafficLightManager(self.world, verbose=True)
         
         # 初始化同步模式管理器并启用同步模式
         sync_config = SyncModeConfig(simulation_fps=self.config.simulation_fps)
@@ -189,7 +195,70 @@ class AutoFullTownCollector:
         # 应用碰撞恢复配置
         self.configure_recovery()
         
+        # 应用红绿灯时间配置
+        self._configure_traffic_lights()
+        
         self._print_config()
+    
+    def _configure_traffic_lights(self):
+        """配置红绿灯时间
+        
+        根据配置设置所有红绿灯的时间参数。
+        使用独立的 TrafficLightManager 模块，安全且不会造成卡顿。
+        """
+        traffic_light_cfg = self.config.traffic_light
+        if not traffic_light_cfg.enabled:
+            return
+        
+        if self._traffic_light_manager is None:
+            print("  ⚠️ 红绿灯管理器未初始化")
+            return
+        
+        print(f"🚦 配置红绿灯时间...")
+        self._traffic_light_manager.set_timing(
+            red=traffic_light_cfg.red_time,
+            green=traffic_light_cfg.green_time,
+            yellow=traffic_light_cfg.yellow_time
+        )
+    
+    def set_traffic_light_timing(self, red_time: float = None, green_time: float = None, 
+                                  yellow_time: float = None) -> bool:
+        """手动设置红绿灯时间
+        
+        参数:
+            red_time: 红灯时间（秒），None则不修改
+            green_time: 绿灯时间（秒），None则不修改
+            yellow_time: 黄灯时间（秒），None则不修改
+            
+        返回:
+            bool: 是否成功
+        """
+        if self._traffic_light_manager is None:
+            print("⚠️ 红绿灯管理器未初始化")
+            return False
+        
+        return self._traffic_light_manager.set_timing(
+            red=red_time, green=green_time, yellow=yellow_time
+        )
+    
+    def reset_all_traffic_lights(self) -> bool:
+        """重置所有红绿灯状态
+        
+        让所有红绿灯重新开始计时周期。
+        
+        返回:
+            bool: 是否成功
+        """
+        if self._traffic_light_manager is None:
+            print("⚠️ 红绿灯管理器未初始化")
+            return False
+        
+        return self._traffic_light_manager.reset_all()
+    
+    @property
+    def traffic_light_manager(self) -> Optional[TrafficLightManager]:
+        """获取红绿灯管理器实例，供外部直接调用高级功能"""
+        return self._traffic_light_manager
     
     def _print_config(self):
         """打印配置信息"""
@@ -200,6 +269,12 @@ class AutoFullTownCollector:
         else:
             print(f"  • 忽略红绿灯: {'✅' if self.config.get_effective_ignore_lights() else '❌'}")
             print(f"  • 忽略停车标志: {'✅' if self.config.get_effective_ignore_signs() else '❌'}")
+        
+        # 显示红绿灯时间配置
+        if self.config.traffic_light.enabled:
+            tl_cfg = self.config.traffic_light
+            print(f"  • 红绿灯时间: 红{tl_cfg.red_time}s/绿{tl_cfg.green_time}s/黄{tl_cfg.yellow_time}s")
+        
         print(f"  • 目标速度: {self.config.target_speed:.1f} km/h")
         print(f"  • 模拟帧率: {self.config.simulation_fps} FPS")
         print(f"  • 每路线帧数: {self.frames_per_route}")
@@ -453,7 +528,16 @@ class AutoFullTownCollector:
         segment_start_cmd = None
         loop_count = 0
         
-        print("🚀 开始数据收集循环...")
+        # 帧率控制 - 基于绝对时间戳，避免累积误差
+        target_frame_time = 1.0 / self.config.simulation_fps  # 目标每帧时间
+        collection_start_time = time.time()  # 收集开始时间
+        next_frame_time = collection_start_time  # 下一帧应该开始的时间
+        realtime_sync = getattr(self.config, 'realtime_sync', False)  # 是否启用实时同步
+        
+        if realtime_sync:
+            print(f"🚀 开始数据收集循环... (实时同步模式, 目标帧率: {self.config.simulation_fps} FPS)")
+        else:
+            print(f"🚀 开始数据收集循环... (最快速度模式)")
         # 【v2.0】移除被动检测逻辑，因为 ensure_sync_mode 已经在 _reset_sync_mode 中验证过
         # 如果仍然出现问题，safe_tick 会自动触发恢复机制
         
@@ -487,8 +571,12 @@ class AutoFullTownCollector:
                 # 获取当前状态（用于可视化和数据收集）
                 speed_kmh = self._inner_collector.get_vehicle_speed()
                 current_cmd = self._inner_collector.get_navigation_command()
-                has_image = len(self._inner_collector.image_buffer) > 0
-                current_image = self._inner_collector.image_buffer[-1].copy() if has_image else None
+                
+                # 安全获取图像（防止竞态条件：len检查和索引访问之间缓冲区可能被清空）
+                try:
+                    current_image = self._inner_collector.image_buffer[-1].copy()
+                except IndexError:
+                    current_image = None
                 
                 # 可视化 - 移到前面，确保即使没有数据也能显示窗口
                 if self._visualizer and current_image is not None:
@@ -530,7 +618,7 @@ class AutoFullTownCollector:
                     return result
                 
                 # 数据收集 - 需要有效图像
-                if not has_image:
+                if current_image is None:
                     continue
                 
                 if current_image.mean() < 5 or speed_kmh > 150:
@@ -540,6 +628,10 @@ class AutoFullTownCollector:
                     continue
                 
                 targets = self._inner_collector.build_targets(speed_kmh, current_cmd)
+                
+                # 如果 targets 为 None，说明噪声启用但专家控制尚未就绪，跳过该帧
+                if targets is None:
+                    continue
                 
                 if pending_frames == 0:
                     segment_start_cmd = current_cmd
@@ -562,6 +654,16 @@ class AutoFullTownCollector:
                 
                 if (saved_frames + pending_frames) % 100 == 0:
                     print(f"  [收集中] 帧数: {saved_frames + pending_frames}/{self.frames_per_route}")
+                
+                # 帧率限制：仅在启用实时同步时生效
+                if realtime_sync:
+                    next_frame_time += target_frame_time
+                    sleep_time = next_frame_time - time.time()
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+                    elif sleep_time < -target_frame_time:
+                        # 如果落后太多（超过一帧），重置时间基准，避免追赶
+                        next_frame_time = time.time()
             
             # 保存剩余数据
             if pending_frames > 0 and not self._inner_collector.collision_detected:
@@ -569,7 +671,9 @@ class AutoFullTownCollector:
                                    segment_start_cmd if segment_start_cmd else 2.0)
                 saved_frames += pending_frames
             
-            print(f"\n📊 本次收集: {saved_frames} 帧")
+            collection_elapsed = time.time() - collection_start_time
+            actual_fps = saved_frames / collection_elapsed if collection_elapsed > 0 else 0
+            print(f"\n📊 本次收集: {saved_frames} 帧, 耗时: {collection_elapsed:.1f}秒, 实际帧率: {actual_fps:.1f} FPS")
             self.total_frames_collected += saved_frames
             result['success'] = True
             result['saved_frames'] = saved_frames
@@ -656,6 +760,7 @@ class AutoFullTownCollector:
         try:
             self._inner_collector.agent = None
             self._inner_collector.image_buffer.clear()
+            self._inner_collector._cached_vehicle_list = None  # 清理 actor 缓存
         except:
             pass
         
@@ -708,10 +813,24 @@ class AutoFullTownCollector:
         print("  ✅ 清理完成")
     
     def _cleanup_npcs(self):
-        """清理NPC"""
+        """清理NPC
+        
+        注意：必须在异步模式下清理 NPC，否则可能导致死锁或崩溃。
+        """
         if self._npc_manager:
-            self._npc_manager.cleanup_all()
-            self._npc_manager = None
+            # 确保在异步模式下清理 NPC
+            if self._sync_manager is not None:
+                try:
+                    self._sync_manager.ensure_async_mode(wait=True)
+                except Exception as e:
+                    print(f"⚠️ 切换异步模式失败: {e}")
+            
+            try:
+                self._npc_manager.cleanup_all()
+            except Exception as e:
+                print(f"⚠️ NPC 清理过程中出错: {e}")
+            finally:
+                self._npc_manager = None
 
 
     def run(self, save_path: str = None, strategy: str = None, 
@@ -872,6 +991,124 @@ class AutoFullTownCollector:
         self.total_frames_collected = 0
         self.failed_routes = []
 
+    def run_single_weather(self, weather_name: str, save_path: str,
+                           strategy: str = None, route_cache_path: Optional[str] = None):
+        """
+        运行单个天气的数据收集（专为多天气收集设计）
+        
+        与 run() 方法的区别：
+        - 接受天气名称参数，在连接后设置天气
+        - 不会在 finally 中恢复异步模式（由调用者处理）
+        
+        参数:
+            weather_name: 天气名称
+            save_path: 数据保存路径
+            strategy: 路线生成策略
+            route_cache_path: 路线缓存文件路径
+        """
+        save_path = save_path or self.config.save_path
+        self.route_generation_strategy = strategy or self.config.route.strategy
+        
+        if route_cache_path is None:
+            route_cache_path = os.path.join(
+                save_path, f"route_cache_{self.config.town}_{self.route_generation_strategy}.json"
+            )
+        
+        try:
+            # 连接到 CARLA
+            self.connect()
+            
+            # 设置指定的天气
+            print(f"🌤️ 设置天气: {weather_name}")
+            self.set_weather(weather_name)
+            
+            # 生成 NPC
+            self._spawn_npcs()
+            
+            # 生成路线
+            route_pairs = self.generate_routes(cache_path=route_cache_path)
+            
+            if not route_pairs:
+                print("❌ 没有生成任何路线！")
+                return
+            
+            print("\n" + "="*70)
+            print(f"🚀 开始数据收集 - 天气: {weather_name}")
+            print("="*70)
+            print(f"总路线数: {len(route_pairs)}")
+            print(f"保存路径: {save_path}")
+            print("="*70 + "\n")
+            
+            start_time = time.time()
+            
+            for idx, (start_idx, end_idx, distance) in enumerate(route_pairs):
+                self.total_routes_attempted += 1
+                
+                print(f"\n📍 路线 {idx+1}/{len(route_pairs)}: "
+                      f"{start_idx} → {end_idx} ({distance:.1f}m)")
+                
+                # 路线验证
+                if self.enable_route_validation and self._route_planner:
+                    valid, _, _ = self._route_planner.validate_route(start_idx, end_idx)
+                    if not valid:
+                        self.failed_routes.append((start_idx, end_idx, "不可达"))
+                        continue
+                
+                # 收集数据
+                success = False
+                retries = 0
+                max_retries = self.max_retries if self.retry_failed_routes else 1
+                
+                while not success and retries <= max_retries:
+                    if retries > 0:
+                        print(f"  🔄 重试 {retries}/{max_retries}...")
+                        self._reset_sync_mode()
+                        time.sleep(2.0)
+                    
+                    try:
+                        success = self.collect_route_data(start_idx, end_idx, save_path)
+                    except Exception as e:
+                        print(f"  ❌ 路线收集异常: {e}")
+                        success = False
+                    
+                    if not success:
+                        retries += 1
+                
+                if success:
+                    self.total_routes_completed += 1
+                else:
+                    self.failed_routes.append((start_idx, end_idx, "收集失败"))
+                
+                # 路线之间暂停
+                if self.pause_between_routes > 0 and idx < len(route_pairs) - 1:
+                    time.sleep(self.pause_between_routes)
+                
+                # 进度显示
+                elapsed = time.time() - start_time
+                remaining = elapsed / (idx + 1) * (len(route_pairs) - idx - 1)
+                print(f"📊 进度: {idx+1}/{len(route_pairs)}, "
+                      f"成功: {self.total_routes_completed}, "
+                      f"剩余: {remaining/60:.1f}分钟")
+            
+            self._print_final_statistics(time.time() - start_time, save_path)
+            
+        except KeyboardInterrupt:
+            print("\n⚠️ 收到中断信号，正在清理资源...")
+            raise  # 重新抛出，让 MultiWeatherCollector 处理
+        except Exception as e:
+            print(f"\n❌ run_single_weather 发生异常: {e}")
+            import traceback
+            traceback.print_exc()
+            raise  # 重新抛出，让 MultiWeatherCollector 处理
+        finally:
+            print(f"🧹 [run_single_weather] 开始清理资源 (天气: {weather_name})...")
+            # 只清理内部收集器（车辆、传感器等）
+            # NPC 清理由 MultiWeatherCollector 统一处理
+            self._cleanup_inner_collector()
+            
+            # 注意：不在这里清理 NPC 和恢复异步模式，由 MultiWeatherCollector 统一处理
+            print(f"✅ [run_single_weather] 内部收集器清理完成 (天气: {weather_name})")
+
 
 # ============================================================================
 # 多天气收集器
@@ -919,10 +1156,13 @@ class MultiWeatherCollector:
         print("🌤️ 多天气数据收集")
         print("="*70)
         print(f"天气列表: {weather_list}")
+        print(f"天气数量: {len(weather_list)}")
         print(f"保存路径: {base_save_path}")
+        print(f"路线缓存: {route_cache_path}")
         print("="*70 + "\n")
         
         for idx, weather_name in enumerate(weather_list):
+            print(f"\n🔄 开始处理第 {idx+1}/{len(weather_list)} 个天气...")
             print(f"\n{'='*70}")
             print(f"🌤️ [{idx+1}/{len(weather_list)}] 开始收集天气: {weather_name}")
             print(f"{'='*70}")
@@ -934,20 +1174,10 @@ class MultiWeatherCollector:
             collector = AutoFullTownCollector(self.config)
             
             try:
-                # 连接并设置天气
-                collector.connect()
-                collector.set_weather(weather_name)
-                collector._spawn_npcs()
-                
-                # 生成路线（使用共享缓存）
-                route_pairs = collector.generate_routes(cache_path=route_cache_path)
-                
-                if not route_pairs:
-                    print(f"❌ 天气 {weather_name}: 没有生成任何路线！")
-                    continue
-                
-                # 运行收集
-                collector.run(
+                # 直接调用 run_single_weather()，避免重复调用 connect()
+                # run_single_weather() 是专门为多天气收集设计的方法
+                collector.run_single_weather(
+                    weather_name=weather_name,
                     save_path=weather_save_path,
                     strategy=strategy,
                     route_cache_path=route_cache_path
@@ -962,14 +1192,37 @@ class MultiWeatherCollector:
                 }
                 self.total_frames_all_weather += collector.total_frames_collected
                 
+            except KeyboardInterrupt:
+                print(f"\n⚠️ 用户中断，停止多天气收集")
+                # 记录当前天气的统计
+                self.weather_statistics[weather_name] = {
+                    'routes_attempted': collector.total_routes_attempted,
+                    'routes_completed': collector.total_routes_completed,
+                    'frames_collected': collector.total_frames_collected,
+                    'failed_routes': len(collector.failed_routes),
+                    'interrupted': True,
+                }
+                self.total_frames_all_weather += collector.total_frames_collected
+                break  # 退出天气循环
+                
             except Exception as e:
                 print(f"❌ 天气 {weather_name} 收集失败: {e}")
                 import traceback
                 traceback.print_exc()
+                # 继续下一个天气，不退出循环
+                
             finally:
-                # 完整的资源清理
-                collector._cleanup_inner_collector()
-                collector._cleanup_npcs()
+                print(f"🧹 [MultiWeatherCollector] 清理天气 {weather_name} 的资源...")
+                # 完整的资源清理（用 try-except 包裹，确保即使清理失败也能继续）
+                try:
+                    collector._cleanup_inner_collector()
+                except Exception as cleanup_error:
+                    print(f"⚠️ 清理内部收集器失败: {cleanup_error}")
+                
+                try:
+                    collector._cleanup_npcs()
+                except Exception as cleanup_error:
+                    print(f"⚠️ 清理 NPC 失败: {cleanup_error}")
                 
                 # 恢复异步模式
                 if collector._sync_manager is not None:
@@ -977,6 +1230,8 @@ class MultiWeatherCollector:
                         collector._sync_manager.ensure_async_mode(wait=True)
                     except Exception as cleanup_error:
                         print(f"⚠️ 恢复异步模式失败: {cleanup_error}")
+                
+                print(f"✅ [MultiWeatherCollector] 天气 {weather_name} 处理完成，继续下一个天气...")
         
         self._print_multi_weather_summary(base_save_path)
     

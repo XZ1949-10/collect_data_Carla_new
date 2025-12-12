@@ -202,6 +202,25 @@ class NPCConfig:
 
 
 @dataclass
+class TrafficLightConfig:
+    """红绿灯时间配置"""
+    enabled: bool = False  # 是否启用自定义红绿灯时间
+    red_time: float = 5.0  # 红灯时间（秒）
+    green_time: float = 10.0  # 绿灯时间（秒）
+    yellow_time: float = 2.0  # 黄灯时间（秒）
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'TrafficLightConfig':
+        """从字典创建"""
+        return cls(
+            enabled=data.get('enabled', False),
+            red_time=data.get('red_time', 5.0),
+            green_time=data.get('green_time', 10.0),
+            yellow_time=data.get('yellow_time', 2.0),
+        )
+
+
+@dataclass
 class WeatherConfig:
     """天气配置"""
     preset: Optional[str] = 'ClearNoon'  # 预设名称
@@ -342,6 +361,7 @@ class CollectorConfig:
     # 速度和帧率
     target_speed: float = 10.0
     simulation_fps: int = 20
+    realtime_sync: bool = False  # 是否启用实时同步（帧率限制）
     
     # 摄像头配置
     camera: CameraConfig = field(default_factory=CameraConfig)
@@ -357,6 +377,9 @@ class CollectorConfig:
     
     # 天气配置
     weather: WeatherConfig = field(default_factory=WeatherConfig)
+    
+    # 红绿灯时间配置
+    traffic_light: TrafficLightConfig = field(default_factory=TrafficLightConfig)
     
     # 多天气配置
     multi_weather: MultiWeatherConfig = field(default_factory=MultiWeatherConfig)
@@ -391,6 +414,7 @@ class CollectorConfig:
         anomaly_dict = data.pop('anomaly', {})
         npc_dict = data.pop('npc', {})
         weather_dict = data.pop('weather', {})
+        traffic_light_dict = data.pop('traffic_light', {})
         multi_weather_dict = data.pop('multi_weather', {})
         route_dict = data.pop('route', {})
         collision_recovery_dict = data.pop('collision_recovery', {})
@@ -407,6 +431,7 @@ class CollectorConfig:
             ignore_vehicles_percentage=data.get('ignore_vehicles_percentage', 80),
             target_speed=data.get('target_speed', 10.0),
             simulation_fps=data.get('simulation_fps', 20),
+            realtime_sync=data.get('realtime_sync', False),
             save_path=data.get('save_path', './carla_data'),
             segment_size=data.get('segment_size', 200),
             frames_per_route=data.get('frames_per_route', 1000),
@@ -417,6 +442,7 @@ class CollectorConfig:
             anomaly=AnomalyConfig(**anomaly_dict) if anomaly_dict else AnomalyConfig(),
             npc=NPCConfig(**npc_dict) if npc_dict else NPCConfig(),
             weather=WeatherConfig.from_dict(weather_dict) if weather_dict else WeatherConfig(),
+            traffic_light=TrafficLightConfig.from_dict(traffic_light_dict) if traffic_light_dict else TrafficLightConfig(),
             multi_weather=MultiWeatherConfig.from_dict(multi_weather_dict) if multi_weather_dict else MultiWeatherConfig(),
             route=RouteConfig.from_dict(route_dict) if route_dict else RouteConfig(),
             collision_recovery=CollisionRecoveryConfig.from_dict(collision_recovery_dict) if collision_recovery_dict else CollisionRecoveryConfig(),

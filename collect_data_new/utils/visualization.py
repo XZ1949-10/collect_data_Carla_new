@@ -244,8 +244,15 @@ class FrameVisualizer:
     def close(self):
         """关闭窗口"""
         if self._window_created:
-            cv2.destroyWindow(self.window_name)
+            try:
+                cv2.destroyWindow(self.window_name)
+            except Exception:
+                pass  # 窗口可能已经被销毁
             self._window_created = False
+    
+    def __del__(self):
+        """析构函数，确保窗口被关闭"""
+        self.close()
 
 
 class H5DataVisualizer:

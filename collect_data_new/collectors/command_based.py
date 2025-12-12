@@ -122,7 +122,11 @@ class CommandBasedCollector(BaseDataCollector):
             while collected_frames < max_frames:
                 self.current_command = self.get_navigation_command()
                 
-                current_image = self.image_buffer[-1] if len(self.image_buffer) > 0 else None
+                # 安全获取图像（防止竞态条件）
+                try:
+                    current_image = self.image_buffer[-1]
+                except IndexError:
+                    current_image = None
                 current_speed = self.get_vehicle_speed()
                 
                 # 询问用户
@@ -162,10 +166,12 @@ class CommandBasedCollector(BaseDataCollector):
                         print(f"\n🎯 已到达目的地！")
                         break
                     
-                    if len(self.image_buffer) == 0:
+                    # 安全获取图像（防止竞态条件）
+                    try:
+                        current_image = self.image_buffer[-1].copy()
+                    except IndexError:
                         continue
                     
-                    current_image = self.image_buffer[-1].copy()
                     speed_kmh = self.get_vehicle_speed()
                     current_cmd = self.get_navigation_command()
                     
@@ -173,6 +179,10 @@ class CommandBasedCollector(BaseDataCollector):
                         continue
                     
                     targets = self.build_targets(speed_kmh, current_cmd)
+                    
+                    # 如果 targets 为 None，说明噪声启用但专家控制尚未就绪，跳过该帧
+                    if targets is None:
+                        continue
                     
                     self.current_segment_data['rgb'].append(current_image)
                     self.current_segment_data['targets'].append(targets)
@@ -229,17 +239,22 @@ class CommandBasedCollector(BaseDataCollector):
             skip_frames += 1
             collected_frames += 1
             
-            if self._visualizer and len(self.image_buffer) > 0:
-                # 获取可视化信息（低耦合方式）
-                vis_info = self.get_visualization_info()
-                self._visualizer.visualize_frame(
-                    self.image_buffer[-1], self.get_vehicle_speed(),
-                    int(new_command), collected_frames, max_frames,
-                    is_collecting=False,
-                    noise_info=vis_info.to_noise_info(),
-                    control_info=vis_info.to_control_info(),
-                    expert_control=vis_info.to_expert_control()
-                )
+            if self._visualizer:
+                # 安全获取图像（防止竞态条件）
+                try:
+                    vis_image = self.image_buffer[-1]
+                    # 获取可视化信息（低耦合方式）
+                    vis_info = self.get_visualization_info()
+                    self._visualizer.visualize_frame(
+                        vis_image, self.get_vehicle_speed(),
+                        int(new_command), collected_frames, max_frames,
+                        is_collecting=False,
+                        noise_info=vis_info.to_noise_info(),
+                        control_info=vis_info.to_control_info(),
+                        expert_control=vis_info.to_expert_control()
+                    )
+                except IndexError:
+                    pass  # 图像缓冲区为空，跳过可视化
         
         return collected_frames
     

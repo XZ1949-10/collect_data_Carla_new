@@ -26,7 +26,7 @@ if errorlevel 1 (
 REM 运行收集脚本
 echo 正在启动数据收集...
 echo.
-python -m collect_data_new.scripts.run_auto_collection --config auto_collection_config.json %*
+python -m collect_data_new.scripts.run_auto_collection --config collect_data_new/config/auto_collection_config.json %*
 
 echo.
 echo ========================================

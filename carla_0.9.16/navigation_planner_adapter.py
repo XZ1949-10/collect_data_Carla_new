@@ -420,33 +420,56 @@ class NavigationPlannerAdapter:
         """
         检查是否到达目的地
         
-        使用 BasicAgent.done() 方法，与数据收集一致
+        使用多重条件判断，确保可靠检测到达：
+        1. 优先检查与目的地的实际距离（最可靠）
+        2. 其次使用 BasicAgent.done() 方法
+        3. 最后检查路线进度
         
         参数:
             vehicle: carla.Vehicle 实例
-            threshold: 距离阈值（米）
+            threshold: 距离阈值（米），默认5米
             
         返回:
             bool: 是否到达目的地
         """
-        # 优先使用 BasicAgent 的 done() 方法
+        current_location = vehicle.get_location()
+        
+        # 方案1：检查与目的地的实际距离（最可靠）
+        if self._destination is not None:
+            distance_to_destination = current_location.distance(self._destination)
+            if distance_to_destination < threshold:
+                return True
+        
+        # 方案2：使用 BasicAgent 的 done() 方法
         if self._agent is not None:
             try:
-                return self._agent.done()
+                if self._agent.done():
+                    return True
             except Exception:
                 pass
         
-        # 回退方案：检查距离
+        # 方案3：检查是否到达路线末尾
+        if self._route and len(self._route) > 0:
+            # 检查与最后一个路点的距离
+            last_waypoint = self._route[-1][0].transform.location
+            distance_to_last = current_location.distance(last_waypoint)
+            if distance_to_last < threshold:
+                return True
+            
+            # 检查路线进度（已完成95%以上且距离较近）
+            if len(self._route) > 1:
+                progress = self._current_waypoint_index / len(self._route)
+                if progress > 0.95 and distance_to_last < threshold * 3:
+                    return True
+        
+        # 回退：无路线或无目的地视为已完成
         if not self._route or len(self._route) == 0:
             return True
         
         if self._destination is None:
             return True
         
-        current_location = vehicle.get_location()
-        distance_to_destination = current_location.distance(self._destination)
-        
-        return distance_to_destination < threshold
+        return False
     
     def _update_current_waypoint(self, vehicle):
         """

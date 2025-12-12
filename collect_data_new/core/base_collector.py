@@ -121,6 +121,10 @@ class BaseDataCollector:
         
         # 缓存
         self._cached_vehicle_list = None
+        
+        # tick 计数器（用于定期更新缓存）
+        self._tick_count = 0
+        self._tick_fail_count = 0
     
     def _init_noisers(self, segment_frames: int = None):
         """初始化噪声器
@@ -646,7 +650,7 @@ class BaseDataCollector:
         
         # 缓存actors - 每 10 帧更新一次，减少开销
         # 关键：在 tick 之后立即更新缓存，此时服务器已响应
-        self._tick_count = getattr(self, '_tick_count', 0) + 1
+        self._tick_count += 1
         if self._tick_count % 10 == 0:  # 每 10 帧更新一次
             try:
                 self._cached_vehicle_list = self.world.get_actors().filter("*vehicle*")
@@ -672,7 +676,7 @@ class BaseDataCollector:
             success = self._sync_manager.safe_tick()
             if not success:
                 # tick 失败时尝试重置同步模式
-                self._tick_fail_count = getattr(self, '_tick_fail_count', 0) + 1
+                self._tick_fail_count += 1
                 if self._tick_fail_count >= 5:
                     print(f"⚠️ tick 连续失败 {self._tick_fail_count} 次，尝试重置同步模式...")
                     self._sync_manager.reset_sync_mode()
@@ -758,11 +762,22 @@ class BaseDataCollector:
     # ==================== 数据构建 ====================
     
     def build_targets(self, speed_kmh: float, command: float) -> np.ndarray:
-        """构建targets数组"""
-        if self.config.noise.enabled and self._expert_control is not None:
+        """构建targets数组
+        
+        注意：当噪声启用时，必须使用 _expert_control（专家控制）作为标签，
+        而不是 vehicle.get_control()（带噪声的实际控制）。
+        如果 _expert_control 为 None（例如第一帧），则跳过该帧的数据收集。
+        """
+        # 优先使用专家控制（无噪声的原始控制信号）
+        if self._expert_control is not None:
             control = self._expert_control
-        else:
+        elif not self.config.noise.enabled:
+            # 噪声未启用时，vehicle.get_control() 就是专家控制
             control = self.vehicle.get_control()
+        else:
+            # 噪声启用但 _expert_control 为 None，返回 None 表示跳过该帧
+            # 调用者应检查返回值
+            return None
         
         targets = np.zeros(25, dtype=np.float32)
         targets[0] = control.steer
@@ -877,6 +892,7 @@ class BaseDataCollector:
         self.camera = None
         self.vehicle = None
         self.image_buffer.clear()
+        self._cached_vehicle_list = None  # 清理 actor 缓存，避免内存泄漏
         
         if self.config.enable_visualization:
             try:

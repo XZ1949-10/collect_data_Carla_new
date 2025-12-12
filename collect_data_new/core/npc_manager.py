@@ -229,21 +229,27 @@ class NPCManager:
         print(f"✅ 成功生成 {len(self._walkers)} 个 NPC 行人")
         return len(self._walkers)
     
-    def _wait_for_initialization(self, wait_time: float = 0.5):
+    def _wait_for_initialization(self, wait_time: float = 0.5, tick_count: int = 5):
         """
         等待初始化完成
         
-        如果有 SyncModeManager，使用 safe_tick() 推进模拟；
+        如果有 SyncModeManager，使用 safe_tick() 推进模拟多次；
         否则使用 time.sleep() 等待（适用于异步模式）。
         
         注意：不直接调用 world.tick()，避免与 SyncModeManager 职责重叠。
         
         参数:
             wait_time: 异步模式下的等待时间（秒）
+            tick_count: 同步模式下执行的 tick 次数
         """
         if self._sync_manager is not None:
-            # 使用 SyncModeManager 安全地推进模拟
-            self._sync_manager.safe_tick()
+            # 使用 SyncModeManager 安全地推进模拟多次，确保初始化完成
+            success_count = 0
+            for _ in range(tick_count):
+                if self._sync_manager.safe_tick():
+                    success_count += 1
+            if success_count < tick_count // 2:
+                print(f"  ⚠️ NPC 初始化 tick 不完整: {success_count}/{tick_count}")
         else:
             # 异步模式下等待一段时间让初始化完成
             # 不调用 world.tick()，因为：
@@ -252,44 +258,106 @@ class NPCManager:
             time.sleep(wait_time)
     
     def cleanup_all(self) -> None:
-        """清理所有 NPC"""
+        """清理所有 NPC
+        
+        注意：必须在异步模式下清理 NPC，否则可能导致死锁或崩溃。
+        """
         print("🧹 正在清理 NPC...")
         
+        # 确保在异步模式下清理（在同步模式下销毁 actor 可能导致崩溃）
+        if self._sync_manager is not None:
+            try:
+                print("  🔄 切换到异步模式...")
+                self._sync_manager.ensure_async_mode(wait=True)
+                print("  ✅ 已切换到异步模式")
+            except Exception as e:
+                print(f"⚠️ 切换异步模式失败: {e}")
+        
+        # 等待一下确保模式切换生效
+        time.sleep(0.5)
+        
+        print(f"  🚗 开始清理 {len(self._vehicles)} 辆 NPC 车辆...")
         vehicles_cleaned = self.cleanup_vehicles()
+        print(f"  ✅ 车辆清理完成: {vehicles_cleaned}")
+        
+        print(f"  🚶 开始清理 {len(self._walkers)} 个 NPC 行人...")
         walkers_cleaned = self.cleanup_walkers()
+        print(f"  ✅ 行人清理完成: {walkers_cleaned}")
         
         print(f"✅ NPC 清理完成（车辆: {vehicles_cleaned}, 行人: {walkers_cleaned}）")
     
     def cleanup_vehicles(self) -> int:
-        """清理所有 NPC 车辆"""
-        count = 0
-        for vehicle in self._vehicles:
-            try:
-                vehicle.destroy()
-                count += 1
-            except:
-                pass
+        """清理所有 NPC 车辆
+        
+        使用批量销毁命令，更安全高效。
+        """
+        count = len(self._vehicles)
+        if count == 0:
+            return 0
+        
+        # 使用 client.apply_batch_sync 批量销毁
+        try:
+            batch = [carla.command.DestroyActor(v) for v in self._vehicles if v is not None]
+            if batch:
+                self.client.apply_batch_sync(batch, False)
+        except Exception as e:
+            print(f"    ⚠️ 批量销毁车辆失败: {e}")
+            # 降级为逐个销毁
+            for vehicle in self._vehicles:
+                try:
+                    if vehicle is not None:
+                        vehicle.destroy()
+                except:
+                    pass
+        
         self._vehicles.clear()
         return count
     
     def cleanup_walkers(self) -> int:
-        """清理所有 NPC 行人和控制器"""
+        """清理所有 NPC 行人和控制器
+        
+        使用批量销毁命令，更安全高效。
+        """
+        # 先停止所有控制器
         for ctrl_id in self._walker_controllers:
             try:
                 ctrl = self.world.get_actor(ctrl_id)
                 if ctrl:
                     ctrl.stop()
-                    ctrl.destroy()
             except:
                 pass
         
-        count = 0
-        for walker in self._walkers:
-            try:
-                walker.destroy()
-                count += 1
-            except:
-                pass
+        count = len(self._walkers)
+        
+        # 批量销毁控制器和行人
+        try:
+            batch = []
+            # 先销毁控制器
+            for ctrl_id in self._walker_controllers:
+                batch.append(carla.command.DestroyActor(ctrl_id))
+            # 再销毁行人
+            for walker in self._walkers:
+                if walker is not None:
+                    batch.append(carla.command.DestroyActor(walker))
+            
+            if batch:
+                self.client.apply_batch_sync(batch, False)
+        except Exception as e:
+            print(f"    ⚠️ 批量销毁行人失败: {e}")
+            # 降级为逐个销毁
+            for ctrl_id in self._walker_controllers:
+                try:
+                    ctrl = self.world.get_actor(ctrl_id)
+                    if ctrl:
+                        ctrl.destroy()
+                except:
+                    pass
+            for walker in self._walkers:
+                try:
+                    if walker is not None:
+                        walker.destroy()
+                except:
+                    pass
         
         self._walkers.clear()
         self._walker_controllers.clear()

@@ -14,7 +14,7 @@
     
     "traffic_rules": {
         "_comment": "自车交通规则配置，控制数据收集车辆的行为",
-        "obey_traffic_rules": true,
+        "obey_traffic_rules": false,
         "_comment_obey_traffic_rules": "【总开关】true=遵守所有交通规则（忽略下面的详细配置），false=使用下面的详细配置",
         "ignore_traffic_lights": false,
         "_comment_ignore_traffic_lights": "是否忽略红绿灯，true=闯红灯继续行驶（仅当obey_traffic_rules=false时生效）",
@@ -49,6 +49,18 @@
             "vehicle_speed_difference": 30.0,
             "_comment_vehicle_speed_difference": "速度差异百分比(0-100)，NPC车辆相对于道路限速的随机偏差范围，0=严格按限速，30=在限速±30%范围内随机"
         }
+    },
+    
+    "traffic_light_settings": {
+        "_comment": "红绿灯时间配置，控制交通信号灯的时长",
+        "enabled": false,
+        "_comment_enabled": "是否启用自定义红绿灯时间，false=使用CARLA默认时间",
+        "red_time": 1.0,
+        "_comment_red_time": "红灯持续时间（秒），建议范围3-15秒",
+        "green_time": 10.0,
+        "_comment_green_time": "绿灯持续时间（秒），建议范围5-30秒",
+        "yellow_time": 1.0,
+        "_comment_yellow_time": "黄灯持续时间（秒），建议范围1-5秒"
     },
     
     "weather_settings": {
@@ -88,8 +100,8 @@
         "_comment_max_distance": "路线最大长度(米)，过长的路线会被过滤",
         "target_routes_ratio": 1.0,
         "_comment_target_routes_ratio": "目标路线数量比例(0-1)，1.0=使用所有有效路线",
-        "max_candidates_to_analyze": 6000,
-        "_comment_max_candidates_to_analyze": "最大候选路线分析数量，越大越全面但越慢",
+        "max_candidates_to_analyze": 60000,
+        "_comment_max_candidates_to_analyze": "最大候选路线分析数量，0=分析所有组合（推荐），越大越全面但越慢",
         "overlap_threshold": 0.6,
         "_comment_overlap_threshold": "路线重叠阈值(0-1)，超过此值的重复路线会被过滤",
         "turn_priority_ratio": 0.7,
@@ -104,6 +116,9 @@
         "_comment_save_path": "数据保存路径，建议使用SSD以提高写入速度",
         "auto_save_interval": 200,
         "_comment_auto_save_interval": "自动保存间隔(帧数)，防止崩溃丢失数据",
+        "realtime_sync": false,
+        "_comment_realtime_sync": "是否启用实时同步（帧率限制），false=最快速度收集，true=按simulation_fps限制实际帧率",
+
         "simulation_fps": 20,
         "_comment_simulation_fps": "仿真帧率(FPS)，影响数据收集密度和仿真速度",
         "enable_visualization": true,
@@ -114,7 +129,7 @@
     
     "multi_weather_settings": {
         "_comment": "多天气轮换收集配置，用于收集多样化天气数据",
-        "enabled": false,
+        "enabled": true ,
         "_comment_enabled": "是否启用多天气轮换，启用后每条路线使用不同天气",
         "weather_preset": "full",
         "_comment_weather_preset": "天气组合预设: basic/all_noon/all_sunset/all_night/clear_all/rain_all/full/complete",
@@ -196,7 +211,7 @@
         "_comment_max_collisions_per_route": "每条路线最大允许碰撞次数，超过后切换路线",
         "min_distance_to_destination": 30.0,
         "_comment_min_distance_to_destination": "距终点最小距离(米)，小于此距离时碰撞不触发恢复",
-        "recovery_skip_distance": 25.0,
+        "recovery_skip_distance": 10.0,
         "_comment_recovery_skip_distance": "恢复时跳过的距离(米)，将车辆传送到前方此距离处"
     },
     
@@ -253,6 +268,7 @@
         "减少碰撞：降低 target_speed_kmh 或增加 num_npc_vehicles=0",
         "增加数据多样性：启用 noise_settings 和 multi_weather_settings",
         "自车遵守交通规则：设置 traffic_rules.obey_traffic_rules=true（会忽略详细配置）",
-        "NPC遵守交通规则：设置 world_settings.npc_behavior.obey_traffic_rules=true（仅影响车辆，不影响行人）"
+        "NPC遵守交通规则：设置 world_settings.npc_behavior.obey_traffic_rules=true（仅影响车辆，不影响行人）",
+        "自定义红绿灯时间：设置 traffic_light_settings.enabled=true，然后调整 red_time/green_time/yellow_time"
     ]
 }
