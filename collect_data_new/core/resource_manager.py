@@ -46,6 +46,9 @@ except ImportError:
 if TYPE_CHECKING:
     from .sync_mode_manager import SyncModeManager
 
+# 导入统一的 actor 工具
+from .actor_utils import is_actor_alive, safe_destroy_actor, safe_destroy_sensor
+
 
 class ResourceState(Enum):
     """资源状态枚举"""
@@ -371,38 +374,24 @@ class CarlaResourceManager:
     def _destroy_camera(self):
         if self._camera is None:
             return
-        try:
-            self._camera.stop()
-        except:
-            pass
-        try:
-            self._camera.destroy()
-        except:
-            pass
+        # 使用统一的安全销毁工具
+        safe_destroy_sensor(self._camera, silent=True)
         self._camera = None
         self._camera_callback = None
     
     def _destroy_collision_sensor(self):
         if self._collision_sensor is None:
             return
-        try:
-            self._collision_sensor.stop()
-        except:
-            pass
-        try:
-            self._collision_sensor.destroy()
-        except:
-            pass
+        # 使用统一的安全销毁工具
+        safe_destroy_sensor(self._collision_sensor, silent=True)
         self._collision_sensor = None
         self._collision_callback = None
     
     def _destroy_vehicle(self):
         if self._vehicle is None:
             return
-        try:
-            self._vehicle.destroy()
-        except:
-            pass
+        # 使用统一的安全销毁工具
+        safe_destroy_actor(self._vehicle, silent=True)
         self._vehicle = None
     
     def destroy_all(self, restore_original_mode: bool = False):

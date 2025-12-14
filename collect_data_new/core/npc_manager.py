@@ -12,6 +12,12 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from contextlib import contextmanager
 
 from ..config import NPCConfig
+from .actor_utils import (
+    is_actor_alive, 
+    safe_destroy_actor, 
+    batch_destroy_actors,
+    ActorRegistry
+)
 
 if TYPE_CHECKING:
     from .sync_mode_manager import SyncModeManager
@@ -88,8 +94,13 @@ class NPCManager:
             self._traffic_manager = self.client.get_trafficmanager()
         return self._traffic_manager
     
-    def spawn_all(self, config: NPCConfig) -> Dict[str, int]:
-        """根据配置生成所有 NPC"""
+    def spawn_all(self, config: NPCConfig, excluded_spawn_indices: List[int] = None) -> Dict[str, int]:
+        """根据配置生成所有 NPC
+        
+        参数:
+            config: NPC 配置
+            excluded_spawn_indices: 需要排除的生成点索引列表（避免与数据收集车辆冲突）
+        """
         stats = {'vehicles_spawned': 0, 'walkers_spawned': 0}
         
         if config.num_vehicles > 0:
@@ -103,7 +114,8 @@ class NPCManager:
                 four_wheels_only=config.four_wheels_only,
                 use_back_spawn_points=config.use_back_spawn_points,
                 vehicle_distance=config.vehicle_distance,
-                vehicle_speed_difference=config.vehicle_speed_difference
+                vehicle_speed_difference=config.vehicle_speed_difference,
+                excluded_spawn_indices=excluded_spawn_indices
             )
         
         if config.num_walkers > 0:
@@ -123,8 +135,22 @@ class NPCManager:
                        four_wheels_only: bool = True,
                        use_back_spawn_points: bool = True,
                        vehicle_distance: float = 3.0,
-                       vehicle_speed_difference: float = 30.0) -> int:
-        """生成 NPC 车辆"""
+                       vehicle_speed_difference: float = 30.0,
+                       excluded_spawn_indices: List[int] = None) -> int:
+        """生成 NPC 车辆
+        
+        参数:
+            num: 要生成的车辆数量
+            ignore_lights: 是否忽略红绿灯
+            ignore_signs: 是否忽略交通标志
+            ignore_walkers: 是否忽略行人
+            vehicle_filter: 车辆蓝图过滤器
+            four_wheels_only: 是否只使用四轮车辆
+            use_back_spawn_points: 是否使用后半部分生成点
+            vehicle_distance: 跟车距离
+            vehicle_speed_difference: 速度差异百分比
+            excluded_spawn_indices: 需要排除的生成点索引列表
+        """
         print(f"\n🚗 正在生成 {num} 辆 NPC 车辆...")
         
         blueprints = list(self.blueprint_library.filter(vehicle_filter))
@@ -136,7 +162,19 @@ class NPCManager:
             print("❌ 没有可用的车辆蓝图")
             return 0
         
-        spawn_points = self.world.get_map().get_spawn_points()
+        all_spawn_points = self.world.get_map().get_spawn_points()
+        
+        # 过滤掉需要排除的生成点（数据收集车辆使用的生成点）
+        if excluded_spawn_indices:
+            excluded_set = set(excluded_spawn_indices)
+            spawn_points = [(i, sp) for i, sp in enumerate(all_spawn_points) 
+                           if i not in excluded_set]
+            if len(spawn_points) < len(all_spawn_points):
+                print(f"  📍 已排除 {len(excluded_set)} 个数据收集生成点")
+        else:
+            spawn_points = list(enumerate(all_spawn_points))
+        
+        # 使用后半部分生成点
         if use_back_spawn_points:
             spawn_points = spawn_points[len(spawn_points) // 2:]
         
@@ -145,14 +183,14 @@ class NPCManager:
         tm = self.traffic_manager
         spawned = 0
         
-        for i in range(min(num, len(spawn_points))):
+        for idx, sp in spawn_points[:num]:
             bp = random.choice(blueprints)
             
             if bp.has_attribute('color'):
                 colors = bp.get_attribute('color').recommended_values
                 bp.set_attribute('color', random.choice(colors))
             
-            vehicle = self.world.try_spawn_actor(bp, spawn_points[i])
+            vehicle = self.world.try_spawn_actor(bp, sp)
             
             if vehicle:
                 vehicle.set_autopilot(True, tm.get_port())
@@ -289,75 +327,66 @@ class NPCManager:
     def cleanup_vehicles(self) -> int:
         """清理所有 NPC 车辆
         
-        使用批量销毁命令，更安全高效。
+        使用统一的 actor_utils 进行安全销毁，避免 "not found" 错误。
         """
         count = len(self._vehicles)
         if count == 0:
             return 0
         
-        # 使用 client.apply_batch_sync 批量销毁
-        try:
-            batch = [carla.command.DestroyActor(v) for v in self._vehicles if v is not None]
-            if batch:
-                self.client.apply_batch_sync(batch, False)
-        except Exception as e:
-            print(f"    ⚠️ 批量销毁车辆失败: {e}")
-            # 降级为逐个销毁
-            for vehicle in self._vehicles:
-                try:
-                    if vehicle is not None:
-                        vehicle.destroy()
-                except:
-                    pass
+        # 使用统一的批量销毁工具
+        destroyed = batch_destroy_actors(self.client, self._vehicles, silent=True)
+        
+        if destroyed < count:
+            print(f"    ℹ️ NPC 车辆: {destroyed}/{count} 辆已销毁（部分可能已不存在）")
         
         self._vehicles.clear()
-        return count
+        return destroyed
     
     def cleanup_walkers(self) -> int:
         """清理所有 NPC 行人和控制器
         
-        使用批量销毁命令，更安全高效。
+        使用统一的 actor_utils 进行安全销毁，避免 "not found" 错误。
         """
         # 先停止所有控制器
+        registry = ActorRegistry.get_instance()
         for ctrl_id in self._walker_controllers:
+            if registry.is_destroyed(ctrl_id):
+                continue
             try:
                 ctrl = self.world.get_actor(ctrl_id)
-                if ctrl:
+                if ctrl and is_actor_alive(ctrl):
                     ctrl.stop()
             except:
                 pass
         
         count = len(self._walkers)
         
-        # 批量销毁控制器和行人
-        try:
-            batch = []
-            # 先销毁控制器
-            for ctrl_id in self._walker_controllers:
-                batch.append(carla.command.DestroyActor(ctrl_id))
-            # 再销毁行人
-            for walker in self._walkers:
-                if walker is not None:
-                    batch.append(carla.command.DestroyActor(walker))
-            
-            if batch:
-                self.client.apply_batch_sync(batch, False)
-        except Exception as e:
-            print(f"    ⚠️ 批量销毁行人失败: {e}")
-            # 降级为逐个销毁
-            for ctrl_id in self._walker_controllers:
-                try:
-                    ctrl = self.world.get_actor(ctrl_id)
-                    if ctrl:
-                        ctrl.destroy()
-                except:
-                    pass
-            for walker in self._walkers:
-                try:
-                    if walker is not None:
-                        walker.destroy()
-                except:
-                    pass
+        # 收集所有需要销毁的 actors
+        actors_to_destroy = []
+        
+        # 控制器
+        for ctrl_id in self._walker_controllers:
+            if registry.is_destroyed(ctrl_id):
+                continue
+            try:
+                ctrl = self.world.get_actor(ctrl_id)
+                if ctrl and is_actor_alive(ctrl):
+                    actors_to_destroy.append(ctrl)
+                else:
+                    registry.mark_destroyed(ctrl_id)
+            except:
+                registry.mark_destroyed(ctrl_id)
+        
+        # 行人
+        for walker in self._walkers:
+            if walker is not None and is_actor_alive(walker):
+                actors_to_destroy.append(walker)
+        
+        # 批量销毁
+        destroyed = batch_destroy_actors(self.client, actors_to_destroy, silent=True)
+        
+        if destroyed < len(actors_to_destroy):
+            print(f"    ℹ️ NPC 行人: {destroyed}/{len(actors_to_destroy)} 个已销毁（部分可能已不存在）")
         
         self._walkers.clear()
         self._walker_controllers.clear()

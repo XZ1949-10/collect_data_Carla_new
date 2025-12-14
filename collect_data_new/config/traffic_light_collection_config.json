@@ -1,0 +1,153 @@
+{
+    "_comment_file": "红绿灯路口数据收集配置文件",
+    "_comment_usage": "专门用于收集经过红绿灯路口的路线数据",
+    
+    "carla_settings": {
+        "_comment": "CARLA服务器连接设置",
+        "host": "localhost",
+        "port": 2000,
+        "town": "Town01",
+        "_comment_town": "推荐使用 Town01/Town03/Town04/Town05，这些地图红绿灯较多"
+    },
+    
+    "traffic_rules": {
+        "_comment": "自车交通规则配置 - 红绿灯收集时建议遵守红绿灯",
+        "obey_traffic_rules": false,
+        "ignore_traffic_lights": false,
+        "_comment_ignore_traffic_lights": "建议设为false，让车辆在红灯时停车，收集等待红灯的数据",
+        "ignore_signs": true,
+        "ignore_vehicles_percentage": 0
+    },
+    
+    "world_settings": {
+        "_comment": "世界环境配置",
+        "spawn_npc_vehicles": true,
+        "num_npc_vehicles": 30,
+        "_comment_num_npc_vehicles": "适量NPC车辆可以增加红绿灯场景的真实性",
+        "spawn_npc_walkers": true,
+        "num_npc_walkers": 30,
+        "npc_behavior": {
+            "obey_traffic_rules": false,
+            "ignore_traffic_lights": false,
+            "_comment_ignore_traffic_lights": "NPC也遵守红绿灯，模拟真实交通",
+            "ignore_signs": true,
+            "ignore_walkers": false,
+            "vehicle_distance": 5.0,
+            "vehicle_speed_difference": 30.0
+        }
+    },
+    
+    "traffic_light_settings": {
+        "_comment": "红绿灯时间配置",
+        "enabled": false,
+        "_comment_enabled": "启用自定义红绿灯时间",
+        "red_time": 5.0,
+        "_comment_red_time": "红灯时间（秒），较短的红灯时间可以加快数据收集",
+        "green_time": 10.0,
+        "_comment_green_time": "绿灯时间（秒）",
+        "yellow_time": 2.0,
+        "_comment_yellow_time": "黄灯时间（秒）"
+    },
+    
+    "weather_settings": {
+        "_comment": "天气配置",
+        "preset": "ClearNoon",
+        "_comment_preset": "晴朗天气便于观察红绿灯"
+    },
+    
+    "route_generation": {
+        "_comment": "路线生成策略配置",
+        "strategy": "traffic_light",
+        "_comment_strategy": "使用 traffic_light 策略，专门筛选经过红绿灯的路线",
+        "min_distance": 100.0,
+        "_comment_min_distance": "路线最小长度(米)",
+        "max_distance": 400.0,
+        "_comment_max_distance": "路线最大长度(米)",
+        "target_routes_ratio": 1.0,
+        "max_candidates_to_analyze": 60000,
+        "overlap_threshold": 0.5,
+        "turn_priority_ratio": 0.7
+    },
+    
+    "traffic_light_route_settings": {
+        "_comment": "红绿灯路口路线配置（仅当strategy=traffic_light时生效）",
+        "min_traffic_lights": 1,
+        "_comment_min_traffic_lights": "路线最少经过的红绿灯数量，设为1表示至少经过1个红绿灯",
+        "max_traffic_lights": 0,
+        "_comment_max_traffic_lights": "路线最多经过的红绿灯数量，0=不限制",
+        "traffic_light_radius": 30.0,
+        "_comment_traffic_light_radius": "红绿灯检测半径(米)，路线经过此半径内视为经过该红绿灯",
+        "prefer_more_lights": true,
+        "_comment_prefer_more_lights": "是否优先选择经过更多红绿灯的路线"
+    },
+    
+    "collection_settings": {
+        "_comment": "数据收集参数配置",
+        "frames_per_route": 2000,
+        "_comment_frames_per_route": "每条路线最大收集帧数，红绿灯场景可能需要更多帧（等红灯）",
+        "save_path": "E://datasets/traffic_light_data",
+        "_comment_save_path": "数据保存路径",
+        "auto_save_interval": 200,
+        "realtime_sync": false,
+        "simulation_fps": 20,
+        "enable_visualization": true,
+        "target_speed_kmh": 15.0,
+        "_comment_target_speed_kmh": "目标速度(km/h)，红绿灯场景适当降速"
+    },
+    
+    "noise_settings": {
+        "_comment": "噪声注入配置",
+        "enabled": false,
+        "_comment_enabled": "红绿灯场景建议先不启用噪声，收集干净数据",
+        "lateral_noise": true,
+        "longitudinal_noise": false,
+        "noise_ratio": 0.4,
+        "max_steer_offset": 0.35,
+        "max_throttle_offset": 0.2
+    },
+    
+    "collision_recovery": {
+        "_comment": "碰撞恢复配置",
+        "enabled": true,
+        "max_collisions_per_route": 99,
+        "min_distance_to_destination": 30.0,
+        "recovery_skip_distance": 25.0
+    },
+    
+    "anomaly_detection": {
+        "_comment": "异常行为检测配置",
+        "enabled": true,
+        "spin_detection": {
+            "enabled": true,
+            "threshold_degrees": 270.0,
+            "time_window": 3.0
+        },
+        "rollover_detection": {
+            "enabled": true,
+            "pitch_threshold": 45.0,
+            "roll_threshold": 45.0
+        },
+        "stuck_detection": {
+            "enabled": true,
+            "speed_threshold": 0.5,
+            "time_threshold": 20.0,
+            "_comment_time_threshold": "红绿灯场景等待时间更长，阈值设高一些避免误判"
+        }
+    },
+    
+    "advanced_settings": {
+        "enable_route_validation": true,
+        "retry_failed_routes": false,
+        "max_retries": 2,
+        "pause_between_routes": 3
+    },
+    
+    "_tips": [
+        "红绿灯数据收集建议：",
+        "1. 设置 ignore_traffic_lights=false 让车辆遵守红绿灯",
+        "2. 适当增加 frames_per_route 因为等红灯需要更多时间",
+        "3. 增加 stuck_detection.time_threshold 避免等红灯被误判为卡住",
+        "4. 使用 Town01/Town03/Town04/Town05 这些红绿灯较多的地图",
+        "5. 可以通过 traffic_light_settings 调整红绿灯时间加快收集"
+    ]
+}

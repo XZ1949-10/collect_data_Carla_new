@@ -37,6 +37,16 @@ from ..core import (
     ResourceLifecycleHelper,
     # 红绿灯管理
     TrafficLightManager,
+    # 红绿灯路线规划
+    TrafficLightRoutePlanner,
+)
+from ..core.actor_utils import (
+    is_actor_alive,
+    safe_destroy_actor,
+    safe_destroy_sensor,
+    destroy_all_resources,
+    ActorRegistry,
+    reset_actor_registry
 )
 from ..utils import FrameVisualizer
 from .command_based import CommandBasedCollector
@@ -66,6 +76,7 @@ class AutoFullTownCollector:
         
         # 模块
         self._route_planner: Optional[RoutePlanner] = None
+        self._tl_route_planner: Optional[TrafficLightRoutePlanner] = None  # 红绿灯路线规划器
         self._npc_manager: Optional[NPCManager] = None
         self._weather_manager: Optional[WeatherManager] = None
         self._recovery_manager = CollisionRecoveryManager()
@@ -129,6 +140,9 @@ class AutoFullTownCollector:
         if not CARLA_AVAILABLE:
             raise RuntimeError("CARLA 模块不可用")
         
+        # 重置 actor 注册表（清空历史销毁记录）
+        reset_actor_registry()
+        
         print("\n" + "="*70)
         print("🚗 全自动数据收集器")
         print("="*70)
@@ -154,6 +168,26 @@ class AutoFullTownCollector:
         self._route_planner = RoutePlanner(self.world, self.spawn_points, town=self.config.town)
         self._weather_manager = WeatherManager(self.world)
         self._traffic_light_manager = TrafficLightManager(self.world, verbose=True)
+        
+        # 如果使用红绿灯路线策略，初始化红绿灯路线规划器
+        if self.route_generation_strategy == 'traffic_light':
+            self._tl_route_planner = TrafficLightRoutePlanner(
+                self.world, self.spawn_points, town=self.config.town
+            )
+            # 配置红绿灯路线参数
+            tl_route_cfg = self.config.traffic_light_route
+            self._tl_route_planner.configure(
+                min_distance=self.config.route.min_distance,
+                max_distance=self.config.route.max_distance,
+                overlap_threshold=self.config.route.overlap_threshold,
+                target_routes_ratio=self.config.route.target_routes_ratio,
+                max_candidates=self.config.route.max_candidates_to_analyze,
+                min_traffic_lights=tl_route_cfg.min_traffic_lights,
+                max_traffic_lights=tl_route_cfg.max_traffic_lights,
+                traffic_light_radius=tl_route_cfg.traffic_light_radius,
+                prefer_more_lights=tl_route_cfg.prefer_more_lights,
+            )
+            print(f"🚦 红绿灯路线策略已启用")
         
         # 初始化同步模式管理器并启用同步模式
         sync_config = SyncModeConfig(simulation_fps=self.config.simulation_fps)
@@ -205,6 +239,9 @@ class AutoFullTownCollector:
         
         根据配置设置所有红绿灯的时间参数。
         使用独立的 TrafficLightManager 模块，安全且不会造成卡顿。
+        
+        重要：设置时间后必须调用 reset_all() 让新时间立即生效，
+        否则红绿灯会继续按原来的剩余时间运行直到下一个周期。
         """
         traffic_light_cfg = self.config.traffic_light
         if not traffic_light_cfg.enabled:
@@ -220,6 +257,11 @@ class AutoFullTownCollector:
             green=traffic_light_cfg.green_time,
             yellow=traffic_light_cfg.yellow_time
         )
+        
+        # 关键：重置所有红绿灯，让新的时间设置立即生效
+        # 否则红绿灯会继续按原来的剩余时间运行（可能是CARLA默认的45-90秒）
+        print(f"🔄 重置红绿灯周期，使新时间立即生效...")
+        self._traffic_light_manager.reset_all()
     
     def set_traffic_light_timing(self, red_time: float = None, green_time: float = None, 
                                   yellow_time: float = None) -> bool:
@@ -309,8 +351,12 @@ class AutoFullTownCollector:
             return self._weather_manager.set_custom_weather(params)
         return False
     
-    def _spawn_npcs(self):
-        """生成NPC"""
+    def _spawn_npcs(self, excluded_spawn_indices: List[int] = None):
+        """生成NPC
+        
+        参数:
+            excluded_spawn_indices: 需要排除的生成点索引列表（数据收集路线使用的生成点）
+        """
         npc_cfg = self.config.npc
         
         if npc_cfg.num_vehicles > 0 or npc_cfg.num_walkers > 0:
@@ -318,10 +364,20 @@ class AutoFullTownCollector:
                 self.client, self.world, self.blueprint_library,
                 sync_manager=self._sync_manager
             )
-            self._npc_manager.spawn_all(npc_cfg)
+            self._npc_manager.spawn_all(npc_cfg, excluded_spawn_indices=excluded_spawn_indices)
     
     def generate_routes(self, cache_path: Optional[str] = None) -> List[Tuple[int, int, float]]:
         """生成路线"""
+        # 如果使用红绿灯路线策略
+        if self.route_generation_strategy == 'traffic_light':
+            if self._tl_route_planner is None:
+                print("⚠️ 红绿灯路线规划器未初始化")
+                return []
+            routes = self._tl_route_planner.generate_routes(cache_path=cache_path)
+            # 转换格式：(start, end, distance, tl_count) -> (start, end, distance)
+            return [(s, e, d) for s, e, d, _ in routes]
+        
+        # 使用普通路线规划器
         if self._route_planner is None:
             return []
         return self._route_planner.generate_routes(
@@ -749,8 +805,7 @@ class AutoFullTownCollector:
     def _cleanup_inner_collector(self):
         """清理内部收集器
         
-        使用 ResourceLifecycleHelper.destroy_all_safe() 统一管理资源销毁，
-        确保在正确的模式下执行清理操作。
+        使用统一的 actor_utils 进行安全销毁，避免 "not found" 错误。
         """
         if self._inner_collector is None:
             return
@@ -764,23 +819,30 @@ class AutoFullTownCollector:
         except:
             pass
         
-        # 收集需要销毁的传感器
+        # 收集需要销毁的传感器（只收集有效的）
         sensors = []
         if hasattr(self._inner_collector, 'collision_sensor') and \
            self._inner_collector.collision_sensor:
-            sensors.append(self._inner_collector.collision_sensor)
+            if is_actor_alive(self._inner_collector.collision_sensor):
+                sensors.append(self._inner_collector.collision_sensor)
         if self._inner_collector.camera:
-            sensors.append(self._inner_collector.camera)
+            if is_actor_alive(self._inner_collector.camera):
+                sensors.append(self._inner_collector.camera)
+        
+        # 检查车辆是否有效
+        vehicle_to_destroy = None
+        if self._inner_collector.vehicle and is_actor_alive(self._inner_collector.vehicle):
+            vehicle_to_destroy = self._inner_collector.vehicle
         
         # 使用 ResourceLifecycleHelper 安全销毁所有资源
         if self._lifecycle_helper is not None:
             self._lifecycle_helper.destroy_all_safe(
                 sensors=sensors,
-                vehicle=self._inner_collector.vehicle,
+                vehicle=vehicle_to_destroy,
                 restore_sync=False  # 不恢复同步模式，后续 _reset_sync_mode 会处理
             )
         else:
-            # 降级方案：手动清理
+            # 降级方案：使用统一的 actor_utils
             if self._sync_manager is not None:
                 self._sync_manager.ensure_async_mode(wait=True)
             else:
@@ -793,21 +855,22 @@ class AutoFullTownCollector:
                 except:
                     pass
             
-            # 批量销毁资源
-            for sensor in sensors:
-                try:
-                    sensor.stop()
-                    sensor.destroy()
-                except:
-                    pass
-            
-            try:
-                if self._inner_collector.vehicle:
-                    self._inner_collector.vehicle.destroy()
-            except:
-                pass
-            
-            time.sleep(0.3)
+            # 使用统一的资源销毁工具
+            destroy_all_resources(
+                client=None,
+                sensors=sensors,
+                vehicle=vehicle_to_destroy,
+                wait_time=0.3,
+                silent=True
+            )
+        
+        # 清理内部收集器的引用（避免重复销毁）
+        try:
+            self._inner_collector.collision_sensor = None
+            self._inner_collector.camera = None
+            self._inner_collector.vehicle = None
+        except:
+            pass
         
         self._inner_collector = None
         print("  ✅ 清理完成")
@@ -857,15 +920,21 @@ class AutoFullTownCollector:
             # 设置天气
             self.set_weather_from_config()
             
-            # 生成NPC
-            self._spawn_npcs()
-            
-            # 生成路线
+            # 先生成路线（需要在生成 NPC 之前，以便排除路线使用的生成点）
             route_pairs = self.generate_routes(cache_path=route_cache_path)
             
             if not route_pairs:
                 print("❌ 没有生成任何路线！")
                 return
+            
+            # 提取所有路线使用的生成点索引（起点和终点）
+            route_spawn_indices = set()
+            for start_idx, end_idx, _ in route_pairs:
+                route_spawn_indices.add(start_idx)
+                route_spawn_indices.add(end_idx)
+            
+            # 生成NPC（排除路线使用的生成点，避免冲突）
+            self._spawn_npcs(excluded_spawn_indices=list(route_spawn_indices))
             
             print("\n" + "="*70)
             print("🚀 开始全自动数据收集")
@@ -1022,15 +1091,21 @@ class AutoFullTownCollector:
             print(f"🌤️ 设置天气: {weather_name}")
             self.set_weather(weather_name)
             
-            # 生成 NPC
-            self._spawn_npcs()
-            
-            # 生成路线
+            # 先生成路线（需要在生成 NPC 之前，以便排除路线使用的生成点）
             route_pairs = self.generate_routes(cache_path=route_cache_path)
             
             if not route_pairs:
                 print("❌ 没有生成任何路线！")
                 return
+            
+            # 提取所有路线使用的生成点索引
+            route_spawn_indices = set()
+            for start_idx, end_idx, _ in route_pairs:
+                route_spawn_indices.add(start_idx)
+                route_spawn_indices.add(end_idx)
+            
+            # 生成 NPC（排除路线使用的生成点）
+            self._spawn_npcs(excluded_spawn_indices=list(route_spawn_indices))
             
             print("\n" + "="*70)
             print(f"🚀 开始数据收集 - 天气: {weather_name}")
@@ -1285,9 +1360,9 @@ def run_single_weather_collection(config: CollectorConfig, weather_name: str,
     collector = AutoFullTownCollector(config)
     
     try:
-        collector.connect()
-        collector.set_weather(weather_name)
-        collector._spawn_npcs()
+        # 注意：run() 方法内部会处理连接、天气设置、路线生成和 NPC 生成
+        # 这里只需要设置天气配置，然后调用 run()
+        collector.config.weather.preset = weather_name
         collector.run(
             save_path=save_path,
             strategy=strategy,

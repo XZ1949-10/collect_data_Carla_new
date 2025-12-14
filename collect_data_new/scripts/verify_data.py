@@ -223,7 +223,7 @@ def main():
     parser.add_argument('--data-path', required=True, help='数据目录路径')
     parser.add_argument('--delete-invalid', action='store_true', 
                         help='删除不满足条件的文件')
-    parser.add_argument('--min-frames', type=int, default=200, 
+    parser.add_argument('--min-frames', type=int, default=100, 
                         help='最小帧数要求（默认200）')
     parser.add_argument('--no-charts', action='store_true',
                         help='不生成可视化图表')

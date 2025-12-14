@@ -16,9 +16,10 @@
 
 一套完整的 CIL（Conditional Imitation Learning）自动驾驶流水线，从数据收集到模型训练再到实车推理都有。
 
-主要包含四个部分：
+主要包含五个部分：
 - **数据收集** - 在 CARLA 里自动跑车收集训练数据，支持噪声注入（DAgger）
 - **模型训练** - 支持多卡 DDP 训练，有早停和学习率调节
+- **增量微调** - 支持在已训练模型上微调，防止灾难性遗忘
 - **实时推理** - 加载训练好的模型在 CARLA 里跑
 - **导航规划** - 基于 CARLA 的 GlobalRoutePlanner 做路径规划
 
@@ -75,7 +76,14 @@ CARLA-CIL/
 ├── carla_train/               # 训练代码
 │   ├── main_ddp.py            # DDP 训练入口
 │   ├── carla_net_ori.py       # 网络定义
-│   └── carla_loader_ddp.py    # 数据加载
+│   ├── carla_loader_ddp.py    # 数据加载（固定帧数）
+│   └── carla_loader_dynamic.py # 数据加载（动态帧数）
+│
+├── carla_train_traffic/       # 红绿灯场景微调（防遗忘）
+│   ├── finetune_anti_forget.py # 防遗忘微调脚本
+│   ├── carla_loader_mixed.py  # 混合数据加载器
+│   ├── run_finetune.sh        # 微调启动脚本
+│   └── README.md              # 微调说明文档
 │
 ├── carla_0.9.16/              # 推理代码
 │   ├── carla_inference.py     # 推理入口
@@ -157,9 +165,30 @@ python main_ddp.py --batch-size 32
 
 # 多卡
 bash run_ddp.sh
+
+# 动态帧数（h5文件帧数不一致时使用）
+bash run_ddp.sh --dynamic-loader
 ```
 
-### 4. 推理
+### 4. 增量微调（防遗忘）
+
+如果模型在某些场景（如红绿灯）表现不好，可以收集专门数据进行微调：
+
+```bash
+cd carla_train_traffic
+
+# 修改 run_finetune.sh 中的路径后运行
+bash run_finetune.sh
+```
+
+支持三种防遗忘策略：
+- **混合数据训练** - 新旧数据按比例混合
+- **知识蒸馏** - 用旧模型输出作为软标签
+- **EWC** - 弹性权重巩固，约束重要参数
+
+详见 `carla_train_traffic/README.md`
+
+### 5. 推理
 
 ```bash
 cd carla_0.9.16
@@ -191,6 +220,12 @@ python carla_inference.py --model model/your_model.pth --town Town01
 }
 ```
 
+### 路线生成策略
+
+- **smart** - 智能路线生成，优先选择转弯多的路线
+- **exhaustive** - 穷举所有可能路线
+- **traffic_light** - 专门生成经过红绿灯的路线
+
 ### 噪声模式
 
 有四种噪声注入方式：
@@ -201,36 +236,95 @@ python carla_inference.py --model model/your_model.pth --town Town01
 
 ### 数据格式
 
-存成 h5 文件，按命令分类：
+存成 h5 文件，包含图像和控制标签：
 
 ```
-data_cmd{command}_{timestamp}.h5
-├── rgb: (N, 200, 88, 3) uint8
-└── targets: (N, 4) float32  # [steer, throttle, brake, speed]
+data_{timestamp}.h5
+├── rgb: (N, 88, 200, 3) uint8      # 图像数据
+└── targets: (N, 25+) float32       # 控制标签
+    ├── [0:3] steer, throttle, brake
+    ├── [10] speed (km/h)
+    └── [24] command (2/3/4/5)
 ```
 
 ### 数据工具
 
 ```bash
 # 验证数据
-python verify_data.py --path /path/to/data --min-frames 200
+python -m collect_data_new.scripts.verify_data --data-path /path/to/data --min-frames 100
 
 # 可视化
-python visualize_data.py --file data.h5
+python -m collect_data_new.scripts.visualize_data --dir /path/to/data
 
 # 数据平衡（转向命令容易不平衡）
-python run_balance_selector.py --source /path/to/data --output /path/to/balanced
+python -m collect_data_new.scripts.run_balance_selector --source /path/to/data --output /path/to/balanced
 ```
+
+## 训练详细说明
+
+### 基础训练
+
+```bash
+cd carla_train
+
+# 使用 run_ddp.sh（推荐）
+bash run_ddp.sh
+
+# 或手动指定参数
+torchrun --nproc_per_node=6 main_ddp.py \
+    --batch-size 1536 \
+    --lr 1e-4 \
+    --epochs 90 \
+    --early-stop \
+    --patience 12
+```
+
+### 动态帧数支持
+
+如果你的 h5 文件帧数不一致（比如有的 100 帧，有的 200 帧），使用动态加载器：
+
+```bash
+bash run_ddp.sh --dynamic-loader --min-frames 10
+```
+
+### 增量微调
+
+在已训练模型基础上，使用新数据微调（防止遗忘）：
+
+```bash
+cd carla_train_traffic
+bash run_finetune.sh
+```
+
+关键参数：
+- `--mix-ratio 0.3` - 新数据占 30%，旧数据占 70%
+- `--distill-alpha 0.3` - 30% 损失来自知识蒸馏
+- `--ewc-lambda 5000` - EWC 正则化强度
 
 ## 新版 vs 旧版
 
 `collect_data_new` 是重构过的版本，主要改进：
 - 同步模式管理更稳定，不容易卡死
 - 支持 22 种天气预设
+- 支持红绿灯路线专门生成
 - 自动生成数据质量报告
 - 资源管理更规范，不会泄漏
 
 旧版 `collect_data_old` 功能一样，但代码组织比较乱，不推荐用了。
+
+## 常见问题
+
+### Q: h5 文件帧数不一致怎么办？
+A: 使用 `--dynamic-loader` 参数，会自动检测每个文件的帧数。
+
+### Q: 模型在红绿灯场景不停车？
+A: 收集红绿灯场景数据，使用 `carla_train_traffic` 进行防遗忘微调。
+
+### Q: 训练时显存不够？
+A: 减小 `--batch-size`，或使用 `--use-amp` 开启混合精度。
+
+### Q: 数据收集时卡死？
+A: 检查 CARLA 是否正常运行，尝试重启 CARLA 服务器。
 
 ## 参考
 

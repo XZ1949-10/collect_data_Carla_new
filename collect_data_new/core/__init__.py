@@ -51,6 +51,21 @@ from .traffic_light_manager import (
     create_traffic_light_manager,
     configure_traffic_lights,
 )
+from .traffic_light_route_planner import (
+    TrafficLightRoutePlanner,
+    TrafficLightRouteConfig as TrafficLightRoutePlannerConfig,  # 重命名避免与 config/settings.py 冲突
+    create_traffic_light_route_planner,
+)
+# Actor 工具（统一的资源销毁）
+from .actor_utils import (
+    ActorRegistry,
+    is_actor_alive,
+    safe_destroy_actor,
+    safe_destroy_sensor,
+    batch_destroy_actors,
+    destroy_all_resources,
+    reset_actor_registry,
+)
 
 __all__ = [
     'BaseDataCollector',
@@ -86,4 +101,16 @@ __all__ = [
     'get_traffic_light_presets',
     'create_traffic_light_manager',
     'configure_traffic_lights',
+    # 红绿灯路线规划
+    'TrafficLightRoutePlanner',
+    'TrafficLightRoutePlannerConfig',  # 重命名避免与 config/settings.py 冲突
+    'create_traffic_light_route_planner',
+    # Actor 工具
+    'ActorRegistry',
+    'is_actor_alive',
+    'safe_destroy_actor',
+    'safe_destroy_sensor',
+    'batch_destroy_actors',
+    'destroy_all_resources',
+    'reset_actor_registry',
 ]

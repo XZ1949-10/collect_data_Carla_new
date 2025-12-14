@@ -22,6 +22,9 @@ except ImportError:
     print("❌ CARLA 模块不可用")
     sys.exit(1)
 
+# 导入统一的 actor 工具
+from collect_data_new.core.actor_utils import safe_destroy_actor
+
 
 def test_basic_connection():
     """测试基本连接"""
@@ -189,10 +192,10 @@ def cleanup(world, vehicle):
     world.apply_settings(settings)
     time.sleep(0.5)
     
-    # 销毁车辆
+    # 销毁车辆（使用统一的安全销毁工具）
     if vehicle:
         print("销毁车辆...")
-        vehicle.destroy()
+        safe_destroy_actor(vehicle, silent=True)
     
     print("✅ 清理完成")
 

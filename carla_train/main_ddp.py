@@ -29,7 +29,10 @@ from torch.cuda.amp import autocast, GradScaler
 from tensorboardX import SummaryWriter
 
 from carla_net_ori import CarlaNet, FinalNet
+# 支持两种数据加载器：固定帧数 vs 动态帧数
+# 使用 --dynamic-loader 参数切换
 from carla_loader_ddp import CarlaH5DataDDP
+from carla_loader_dynamic import CarlaH5DataDDP as CarlaH5DataDDPDynamic
 from helper import AverageMeter, save_checkpoint
 
 # PyTorch 2.0+ torch.compile 支持检测
@@ -113,6 +116,11 @@ parser.add_argument('--lr-finder', action='store_true', default=False,
                     help='run learning rate finder before training')
 parser.add_argument('--lr-finder-steps', default=100, type=int,
                     help='number of steps for learning rate finder')
+# 动态帧数加载器参数
+parser.add_argument('--dynamic-loader', action='store_true', default=False,
+                    help='use dynamic frame loader (supports variable frame counts per h5 file)')
+parser.add_argument('--min-frames', default=10, type=int,
+                    help='minimum frames per h5 file (only for dynamic loader)')
 
 
 class EarlyStopping:
@@ -441,14 +449,28 @@ def main():
     
     # 数据加载 (使用DDP版本)
     batch_size_per_gpu = args.batch_size // world_size
-    carla_data = CarlaH5DataDDP(
-        train_folder=args.train_dir,
-        eval_folder=args.eval_dir,
-        batch_size=batch_size_per_gpu,
-        num_workers=args.workers,
-        distributed=distributed,
-        world_size=world_size,
-        rank=rank)
+    
+    # 选择数据加载器
+    if args.dynamic_loader:
+        output_log("Using dynamic frame loader (supports variable frame counts)", logging, rank)
+        carla_data = CarlaH5DataDDPDynamic(
+            train_folder=args.train_dir,
+            eval_folder=args.eval_dir,
+            batch_size=batch_size_per_gpu,
+            num_workers=args.workers,
+            distributed=distributed,
+            world_size=world_size,
+            rank=rank,
+            min_frames=args.min_frames)
+    else:
+        carla_data = CarlaH5DataDDP(
+            train_folder=args.train_dir,
+            eval_folder=args.eval_dir,
+            batch_size=batch_size_per_gpu,
+            num_workers=args.workers,
+            distributed=distributed,
+            world_size=world_size,
+            rank=rank)
     
     train_loader = carla_data.loaders["train"]
     train_sampler = carla_data.samplers["train"]

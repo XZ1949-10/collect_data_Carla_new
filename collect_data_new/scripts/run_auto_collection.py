@@ -69,7 +69,7 @@ def signal_handler(signum, frame):
 
 from collect_data_new.config import (
     CollectorConfig, NoiseConfig, AnomalyConfig, NPCConfig,
-    WeatherConfig, MultiWeatherConfig, RouteConfig,
+    WeatherConfig, MultiWeatherConfig, RouteConfig, TrafficLightRouteConfig,
     CollisionRecoveryConfig, AdvancedConfig, TrafficLightConfig
 )
 from collect_data_new.collectors.auto_collector import (
@@ -130,6 +130,13 @@ def load_config_file(config_path: str) -> dict:
         },
         'multi_weather_settings': {
             'enabled': False, 'weather_preset': 'basic', 'custom_weather_list': []
+        },
+        'traffic_light_route_settings': {
+            'min_traffic_lights': 1, 'max_traffic_lights': 0,
+            'traffic_light_radius': 30.0, 'prefer_more_lights': True
+        },
+        'traffic_light_settings': {
+            'enabled': False, 'red_time': 5.0, 'green_time': 10.0, 'yellow_time': 2.0
         },
     }
     
@@ -260,6 +267,15 @@ def create_collector_config(config: dict, args) -> CollectorConfig:
         max_candidates_to_analyze=route_cfg.get('max_candidates_to_analyze', 0),
     )
     
+    # 红绿灯路线配置（仅当 strategy='traffic_light' 时生效）
+    tl_route_cfg = config.get('traffic_light_route_settings', {})
+    traffic_light_route = TrafficLightRouteConfig(
+        min_traffic_lights=tl_route_cfg.get('min_traffic_lights', 1),
+        max_traffic_lights=tl_route_cfg.get('max_traffic_lights', 0),
+        traffic_light_radius=tl_route_cfg.get('traffic_light_radius', 30.0),
+        prefer_more_lights=tl_route_cfg.get('prefer_more_lights', True),
+    )
+    
     # 碰撞恢复配置
     collision_recovery = CollisionRecoveryConfig(
         enabled=recovery_cfg.get('enabled', True),
@@ -301,6 +317,7 @@ def create_collector_config(config: dict, args) -> CollectorConfig:
         traffic_light=traffic_light,
         multi_weather=multi_weather,
         route=route,
+        traffic_light_route=traffic_light_route,
         collision_recovery=collision_recovery,
         advanced=advanced,
     )
@@ -360,8 +377,8 @@ def main():
     
     # 收集参数
     parser.add_argument('--save-path', type=str, help='数据保存路径')
-    parser.add_argument('--strategy', type=str, choices=['smart', 'exhaustive'],
-                        help='路线生成策略')
+    parser.add_argument('--strategy', type=str, choices=['smart', 'exhaustive', 'traffic_light'],
+                        help='路线生成策略 (traffic_light=红绿灯路口优先)')
     parser.add_argument('--frames-per-route', type=int, help='每条路线最大帧数')
     parser.add_argument('--target-speed', type=float, help='目标速度 (km/h)')
     parser.add_argument('--fps', type=int, help='模拟帧率')

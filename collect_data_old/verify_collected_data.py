@@ -562,11 +562,11 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='验证CARLA收集的数据')
-    parser.add_argument('--data-path', default='E://datasets//good//good_data//balanced', 
+    parser.add_argument('--data-path', default='E://datasets', 
                        help='数据目录路径')
     parser.add_argument('--preview-only', action='store_true',
                        help='仅预览不满足条件的文件，不实际删除')
-    parser.add_argument('--min-frames', type=int, default=200,
+    parser.add_argument('--min-frames', type=int, default=100,
                        help='最小帧数要求，默认200')
     
     args = parser.parse_args()

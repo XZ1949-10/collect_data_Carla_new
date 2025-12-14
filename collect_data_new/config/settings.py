@@ -263,9 +263,28 @@ class MultiWeatherConfig:
 
 
 @dataclass
+class TrafficLightRouteConfig:
+    """红绿灯路线配置（仅当 strategy='traffic_light' 时生效）"""
+    min_traffic_lights: int = 1       # 路线最少经过的红绿灯数量
+    max_traffic_lights: int = 0       # 路线最多经过的红绿灯数量（0=不限制）
+    traffic_light_radius: float = 30.0  # 红绿灯检测半径（米）
+    prefer_more_lights: bool = True   # 是否优先选择经过更多红绿灯的路线
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'TrafficLightRouteConfig':
+        """从字典创建"""
+        return cls(
+            min_traffic_lights=data.get('min_traffic_lights', 1),
+            max_traffic_lights=data.get('max_traffic_lights', 0),
+            traffic_light_radius=data.get('traffic_light_radius', 30.0),
+            prefer_more_lights=data.get('prefer_more_lights', True),
+        )
+
+
+@dataclass
 class RouteConfig:
     """路线生成配置"""
-    strategy: str = 'smart'
+    strategy: str = 'smart'  # 'smart', 'exhaustive', 'traffic_light'
     min_distance: float = 50.0
     max_distance: float = 500.0
     target_routes_ratio: float = 1.0
@@ -387,6 +406,9 @@ class CollectorConfig:
     # 路线配置
     route: RouteConfig = field(default_factory=RouteConfig)
     
+    # 红绿灯路线配置（仅当 route.strategy='traffic_light' 时生效）
+    traffic_light_route: TrafficLightRouteConfig = field(default_factory=TrafficLightRouteConfig)
+    
     # 碰撞恢复配置
     collision_recovery: CollisionRecoveryConfig = field(default_factory=CollisionRecoveryConfig)
     
@@ -417,6 +439,7 @@ class CollectorConfig:
         traffic_light_dict = data.pop('traffic_light', {})
         multi_weather_dict = data.pop('multi_weather', {})
         route_dict = data.pop('route', {})
+        traffic_light_route_dict = data.pop('traffic_light_route', {})
         collision_recovery_dict = data.pop('collision_recovery', {})
         advanced_dict = data.pop('advanced', {})
         
@@ -445,6 +468,7 @@ class CollectorConfig:
             traffic_light=TrafficLightConfig.from_dict(traffic_light_dict) if traffic_light_dict else TrafficLightConfig(),
             multi_weather=MultiWeatherConfig.from_dict(multi_weather_dict) if multi_weather_dict else MultiWeatherConfig(),
             route=RouteConfig.from_dict(route_dict) if route_dict else RouteConfig(),
+            traffic_light_route=TrafficLightRouteConfig.from_dict(traffic_light_route_dict) if traffic_light_route_dict else TrafficLightRouteConfig(),
             collision_recovery=CollisionRecoveryConfig.from_dict(collision_recovery_dict) if collision_recovery_dict else CollisionRecoveryConfig(),
             advanced=AdvancedConfig.from_dict(advanced_dict) if advanced_dict else AdvancedConfig(),
         )

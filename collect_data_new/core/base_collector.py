@@ -48,6 +48,13 @@ from ..detection import AnomalyDetector, CollisionHandler
 from ..noise import Noiser
 from .agent_factory import create_basic_agent, is_agents_available
 from .sync_mode_manager import SyncModeManager, SyncModeConfig, ResourceLifecycleHelper
+from .actor_utils import (
+    is_actor_alive,
+    safe_destroy_actor,
+    safe_destroy_sensor,
+    destroy_all_resources,
+    ActorRegistry
+)
 
 
 class BaseDataCollector:
@@ -835,57 +842,49 @@ class BaseDataCollector:
     def cleanup(self):
         """清理资源
         
-        使用 ResourceLifecycleHelper.destroy_all_safe() 统一管理资源销毁。
+        使用统一的 actor_utils 进行安全销毁，避免 "not found" 错误。
         """
         print("正在清理资源...")
         
         self.agent = None
         
-        # 收集需要销毁的传感器
+        # 收集需要销毁的传感器（只收集有效的）
         sensors = []
         if hasattr(self, 'collision_sensor') and self.collision_sensor:
-            sensors.append(self.collision_sensor)
+            if is_actor_alive(self.collision_sensor):
+                sensors.append(self.collision_sensor)
         if self.camera:
-            sensors.append(self.camera)
+            if is_actor_alive(self.camera):
+                sensors.append(self.camera)
+        
+        # 检查车辆是否有效
+        vehicle_to_destroy = None
+        if self.vehicle and is_actor_alive(self.vehicle):
+            vehicle_to_destroy = self.vehicle
         
         # 使用 ResourceLifecycleHelper 安全销毁所有资源
         if self._lifecycle_helper is not None:
             self._lifecycle_helper.destroy_all_safe(
                 sensors=sensors,
-                vehicle=self.vehicle,
+                vehicle=vehicle_to_destroy,
                 restore_sync=False
             )
         else:
-            # 降级方案：手动清理
-            # 注意：推荐使用 ResourceLifecycleHelper，降级方案可能不够安全
-            print("⚠️ ResourceLifecycleHelper 未初始化，使用降级方案清理资源")
-            
+            # 降级方案：使用统一的 actor_utils
             # 尝试切换到异步模式（销毁资源前必须）
             if self._sync_manager is not None:
                 self._sync_manager.ensure_async_mode(wait=True)
             else:
-                # 没有 SyncModeManager 时，等待一段时间确保稳定
                 time.sleep(0.5)
             
-            # 销毁传感器
-            for sensor in sensors:
-                try:
-                    sensor.stop()
-                except:
-                    pass
-                try:
-                    sensor.destroy()
-                except:
-                    pass
-            
-            # 销毁车辆
-            if self.vehicle:
-                try:
-                    self.vehicle.destroy()
-                except:
-                    pass
-            
-            time.sleep(0.3)
+            # 使用统一的资源销毁工具
+            destroy_all_resources(
+                client=None,
+                sensors=sensors,
+                vehicle=vehicle_to_destroy,
+                wait_time=0.3,
+                silent=True
+            )
         
         # 清理引用
         self.collision_sensor = None

@@ -43,6 +43,15 @@ try:
 except ImportError:
     CARLA_AVAILABLE = False
 
+# 导入统一的 actor 工具
+from .actor_utils import (
+    is_actor_alive,
+    safe_destroy_actor,
+    safe_destroy_sensor,
+    destroy_all_resources,
+    ActorRegistry
+)
+
 
 class SyncMode(Enum):
     """同步模式枚举"""
@@ -719,42 +728,82 @@ class ResourceLifecycleHelper:
         self.sync_mgr = sync_manager
         self.world = sync_manager.world
     
-    def spawn_vehicle_safe(self, blueprint, transform, 
-                           stabilize_ticks: int = 10) -> 'carla.Actor':
+    def is_spawn_point_free(self, location, radius: float = 2.0) -> bool:
         """
-        安全地生成车辆
+        检查生成点是否空闲（没有其他车辆占用）
+        
+        参数:
+            location: 要检查的位置
+            radius: 检测半径（米）
+            
+        返回:
+            bool: True 表示空闲，False 表示被占用
+        """
+        try:
+            vehicles = self.world.get_actors().filter('*vehicle*')
+            for v in vehicles:
+                if v.get_location().distance(location) < radius:
+                    return False
+            return True
+        except Exception as e:
+            print(f"⚠️ 检查生成点状态失败: {e}")
+            return True  # 出错时假设空闲，让 try_spawn_actor 自己判断
+    
+    def spawn_vehicle_safe(self, blueprint, transform, 
+                           stabilize_ticks: int = 10,
+                           max_retries: int = 3,
+                           retry_delay: float = 0.5) -> 'carla.Actor':
+        """
+        安全地生成车辆（带重试机制）
         
         流程：
-        1. 在当前模式下尝试生成
-        2. 如果是同步模式，执行多次 tick 等待物理稳定
+        1. 检查生成点是否被占用
+        2. 在当前模式下尝试生成
+        3. 如果失败，等待后重试
+        4. 如果是同步模式，执行多次 tick 等待物理稳定
         
         参数:
             blueprint: 车辆蓝图
             transform: 生成位置
             stabilize_ticks: 稳定所需的 tick 次数
+            max_retries: 最大重试次数
+            retry_delay: 重试间隔（秒）
             
         返回:
             carla.Actor: 生成的车辆，失败返回 None
         """
-        try:
-            vehicle = self.world.try_spawn_actor(blueprint, transform)
-            
-            if vehicle is None:
-                return None
-            
-            # 等待物理稳定
-            if self.sync_mgr.is_sync:
-                for _ in range(stabilize_ticks):
-                    self.sync_mgr.safe_tick()
-                    time.sleep(0.05)
-            else:
-                time.sleep(1.0)
-            
-            return vehicle
-            
-        except Exception as e:
-            print(f"❌ 生成车辆失败: {e}")
-            return None
+        for attempt in range(max_retries):
+            try:
+                # 检查生成点是否被占用
+                if not self.is_spawn_point_free(transform.location):
+                    print(f"  ⚠️ 生成点被占用，等待后重试 ({attempt + 1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                    continue
+                
+                vehicle = self.world.try_spawn_actor(blueprint, transform)
+                
+                if vehicle is not None:
+                    # 等待物理稳定
+                    if self.sync_mgr.is_sync:
+                        for _ in range(stabilize_ticks):
+                            self.sync_mgr.safe_tick()
+                            time.sleep(0.05)
+                    else:
+                        time.sleep(1.0)
+                    return vehicle
+                
+                # 生成失败，等待后重试
+                if attempt < max_retries - 1:
+                    print(f"  ⚠️ 生成车辆失败，等待后重试 ({attempt + 1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                    
+            except Exception as e:
+                print(f"  ⚠️ 生成车辆异常: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+        
+        print(f"❌ 生成车辆失败（已重试 {max_retries} 次）")
+        return None
     
     def create_sensor_safe(self, blueprint, transform, 
                            attach_to, callback,
@@ -830,18 +879,9 @@ class ResourceLifecycleHelper:
             self.sync_mgr.enable_async_mode()
         
         try:
-            try:
-                sensor.stop()
-            except:
-                pass
-            
-            try:
-                sensor.destroy()
-            except:
-                pass
-            
-            time.sleep(wait_time)
-            return True
+            # 使用统一的安全销毁工具
+            result = safe_destroy_sensor(sensor, wait_time=wait_time, silent=True)
+            return result
             
         except Exception as e:
             print(f"⚠️ 销毁传感器异常: {e}")
@@ -876,9 +916,9 @@ class ResourceLifecycleHelper:
             self.sync_mgr.enable_async_mode()
         
         try:
-            vehicle.destroy()
-            time.sleep(wait_time)
-            return True
+            # 使用统一的安全销毁工具
+            result = safe_destroy_actor(vehicle, wait_time=wait_time, silent=True)
+            return result
             
         except Exception as e:
             print(f"⚠️ 销毁车辆异常: {e}")
@@ -889,19 +929,21 @@ class ResourceLifecycleHelper:
                 self.sync_mgr.enable_sync_mode()
     
     def destroy_all_safe(self, sensors: list, vehicle,
-                         restore_sync: bool = False) -> bool:
+                         restore_sync: bool = False,
+                         verify_cleanup: bool = True) -> bool:
         """
-        安全地销毁所有资源（优化版本，减少等待时间）
+        安全地销毁所有资源（使用统一的 actor_utils）
         
         流程：
         1. 切换到异步模式
-        2. 批量销毁：传感器 → 车辆
+        2. 使用 actor_utils.destroy_all_resources 统一销毁
         3. 可选：恢复同步模式
         
         参数:
             sensors: 传感器列表
             vehicle: 车辆
             restore_sync: 是否恢复同步模式
+            verify_cleanup: 是否验证清理结果（已内置在 destroy_all_resources 中）
             
         返回:
             bool: 是否全部成功
@@ -909,29 +951,24 @@ class ResourceLifecycleHelper:
         # 切换到异步模式
         self.sync_mgr.enable_async_mode()
         
+        # 使用统一的资源销毁工具
+        # 这会自动检查 actor 有效性，避免 "not found" 错误
+        result = destroy_all_resources(
+            client=None,  # 不使用批量命令，逐个销毁更安全
+            sensors=sensors or [],
+            vehicle=vehicle,
+            wait_time=0.5,
+            silent=True  # 静默模式，不打印警告
+        )
+        
         success = True
-        
-        # 批量销毁传感器（不单独等待）
-        for sensor in sensors:
-            if sensor is not None:
-                try:
-                    sensor.stop()
-                except:
-                    pass
-                try:
-                    sensor.destroy()
-                except:
-                    success = False
-        
-        # 销毁车辆
-        if vehicle is not None:
-            try:
-                vehicle.destroy()
-            except:
+        if sensors and result['sensors'] < len([s for s in sensors if s is not None]):
+            # 部分传感器可能已经不存在，这不算失败
+            pass
+        if vehicle is not None and not result['vehicle']:
+            # 车辆销毁失败（但可能已经不存在）
+            if is_actor_alive(vehicle):
                 success = False
-        
-        # 只等待一次
-        time.sleep(0.3)
         
         # 恢复同步模式
         if restore_sync:

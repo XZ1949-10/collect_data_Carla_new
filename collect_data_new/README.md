@@ -198,7 +198,48 @@ python -m collect_data_new.scripts.run_auto_collection --multi-weather basic
 # 多天气收集（自定义列表）
 python -m collect_data_new.scripts.run_auto_collection \
     --weather-list ClearNoon CloudyNoon WetNoon HardRainNoon
+
+# 红绿灯路口数据收集（使用 traffic_light 策略）
+python -m collect_data_new.scripts.run_auto_collection --strategy traffic_light
 ```
+
+### 红绿灯路口数据收集
+
+专门收集经过红绿灯路口的路线数据：
+
+```bash
+# 使用专用脚本
+python -m collect_data_new.scripts.run_traffic_light_collection
+
+# 使用专用配置文件
+python -m collect_data_new.scripts.run_traffic_light_collection \
+    --config traffic_light_collection_config.json
+
+# 指定红绿灯数量范围
+python -m collect_data_new.scripts.run_traffic_light_collection \
+    --min-lights 2 \
+    --max-lights 5
+
+# 指定路线距离范围
+python -m collect_data_new.scripts.run_traffic_light_collection \
+    --min-distance 150 \
+    --max-distance 300
+
+# 启用可视化
+python -m collect_data_new.scripts.run_traffic_light_collection --visualize
+```
+
+或者使用通用脚本的 `traffic_light` 策略：
+
+```bash
+python -m collect_data_new.scripts.run_auto_collection --strategy traffic_light
+```
+
+红绿灯收集配置建议：
+- 设置 `ignore_traffic_lights=false` 让车辆遵守红绿灯
+- 适当增加 `frames_per_route` 因为等红灯需要更多时间
+- 增加 `stuck_detection.time_threshold` 避免等红灯被误判为卡住
+- 使用 Town01/Town03/Town04/Town05 这些红绿灯较多的地图
 
 ### 天气预设说明
 
@@ -348,6 +389,33 @@ routes = planner.generate_routes(
 
 # 验证单条路线
 valid, route, distance = planner.validate_route(start_idx, end_idx)
+```
+
+### 使用红绿灯路线规划器
+
+```python
+from collect_data_new.core import TrafficLightRoutePlanner
+
+# 初始化
+tl_planner = TrafficLightRoutePlanner(world, spawn_points, town='Town01')
+
+# 配置参数
+tl_planner.configure(
+    min_distance=100.0,
+    max_distance=400.0,
+    min_traffic_lights=1,      # 路线至少经过1个红绿灯
+    max_traffic_lights=5,      # 路线最多经过5个红绿灯（0=不限制）
+    traffic_light_radius=30.0, # 红绿灯检测半径
+    prefer_more_lights=True,   # 优先选择经过更多红绿灯的路线
+)
+
+# 生成路线（支持缓存）
+# 返回格式: [(start_idx, end_idx, distance, traffic_light_count), ...]
+routes = tl_planner.generate_routes(cache_path='./tl_routes_cache.json')
+
+# 获取红绿灯位置
+tl_locations = tl_planner.get_traffic_light_locations()
+print(f"地图共有 {len(tl_locations)} 个红绿灯")
 ```
 
 ### 使用天气管理器

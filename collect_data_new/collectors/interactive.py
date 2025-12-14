@@ -44,6 +44,12 @@ except ImportError:
 from ..config import CollectorConfig
 from ..utils.carla_visualizer import CarlaWorldVisualizer, CountdownTimer
 from ..core import SyncModeManager, SyncModeConfig, ResourceLifecycleHelper
+from ..core.actor_utils import (
+    is_actor_alive,
+    safe_destroy_sensor,
+    safe_destroy_actor,
+    destroy_all_resources,
+)
 from .command_based import CommandBasedCollector
 
 
@@ -271,7 +277,7 @@ class InteractiveCollector:
             self._cleanup_collector()
     
     def _cleanup_collector(self):
-        """清理收集器资源（使用 ResourceLifecycleHelper）"""
+        """清理收集器资源（使用统一的 actor_utils）"""
         if self.collector is None:
             return
         
@@ -282,21 +288,29 @@ class InteractiveCollector:
         except:
             pass
         
+        # 收集需要销毁的传感器（只收集有效的）
+        sensors = []
+        if hasattr(self.collector, 'collision_sensor') and self.collector.collision_sensor:
+            if is_actor_alive(self.collector.collision_sensor):
+                sensors.append(self.collector.collision_sensor)
+        if self.collector.camera:
+            if is_actor_alive(self.collector.camera):
+                sensors.append(self.collector.camera)
+        
+        # 检查车辆是否有效
+        vehicle_to_destroy = None
+        if self.collector.vehicle and is_actor_alive(self.collector.vehicle):
+            vehicle_to_destroy = self.collector.vehicle
+        
         # 使用 ResourceLifecycleHelper 安全清理资源
         if self._lifecycle_helper is not None:
-            sensors = []
-            if hasattr(self.collector, 'collision_sensor') and self.collector.collision_sensor:
-                sensors.append(self.collector.collision_sensor)
-            if self.collector.camera:
-                sensors.append(self.collector.camera)
-            
             self._lifecycle_helper.destroy_all_safe(
                 sensors=sensors,
-                vehicle=self.collector.vehicle,
+                vehicle=vehicle_to_destroy,
                 restore_sync=False
             )
         else:
-            # 降级方案：手动清理
+            # 降级方案：使用统一的 actor_utils
             try:
                 settings = self.world.get_settings()
                 settings.synchronous_mode = False
@@ -305,27 +319,22 @@ class InteractiveCollector:
             except:
                 pass
             
-            if hasattr(self.collector, 'collision_sensor') and self.collector.collision_sensor:
-                try:
-                    self.collector.collision_sensor.stop()
-                    self.collector.collision_sensor.destroy()
-                except:
-                    pass
-            
-            if self.collector.camera:
-                try:
-                    self.collector.camera.stop()
-                    self.collector.camera.destroy()
-                except:
-                    pass
-            
-            if self.collector.vehicle:
-                try:
-                    self.collector.vehicle.destroy()
-                except:
-                    pass
-            
-            time.sleep(0.5)
+            # 使用统一的资源销毁工具
+            destroy_all_resources(
+                client=None,
+                sensors=sensors,
+                vehicle=vehicle_to_destroy,
+                wait_time=0.5,
+                silent=True
+            )
+        
+        # 清理引用
+        try:
+            self.collector.collision_sensor = None
+            self.collector.camera = None
+            self.collector.vehicle = None
+        except:
+            pass
         
         print("✅ 清理完成")
     

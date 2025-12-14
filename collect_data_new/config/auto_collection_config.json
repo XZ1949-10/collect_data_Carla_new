@@ -26,7 +26,7 @@
     
     "world_settings": {
         "_comment": "世界环境配置，控制NPC生成",
-        "spawn_npc_vehicles": true,
+        "spawn_npc_vehicles": false,
         "_comment_spawn_npc_vehicles": "是否生成NPC车辆",
         "num_npc_vehicles": 30,
         "_comment_num_npc_vehicles": "NPC车辆数量，0=不生成",
@@ -53,7 +53,7 @@
     
     "traffic_light_settings": {
         "_comment": "红绿灯时间配置，控制交通信号灯的时长",
-        "enabled": false,
+        "enabled": true,
         "_comment_enabled": "是否启用自定义红绿灯时间，false=使用CARLA默认时间",
         "red_time": 1.0,
         "_comment_red_time": "红灯持续时间（秒），建议范围3-15秒",
@@ -92,11 +92,11 @@
     
     "route_generation": {
         "_comment": "路线生成策略配置，控制如何选择起点和终点",
-        "strategy": "smart",
-        "_comment_strategy": "路线生成策略: random=随机, smart=智能(优先选择转弯多的路线)",
-        "min_distance": 150.0,
+        "strategy": "traffic_light",
+        "_comment_strategy": "路线生成策略: random=随机, smart=智能(优先选择转弯多的路线), traffic_light=红绿灯路口优先",
+        "min_distance": 30.0,
         "_comment_min_distance": "路线最小长度(米)，过短的路线会被过滤",
-        "max_distance": 400.0,
+        "max_distance": 80.0,
         "_comment_max_distance": "路线最大长度(米)，过长的路线会被过滤",
         "target_routes_ratio": 1.0,
         "_comment_target_routes_ratio": "目标路线数量比例(0-1)，1.0=使用所有有效路线",
@@ -108,13 +108,25 @@
         "_comment_turn_priority_ratio": "转弯路线优先比例(0-1)，smart策略下优先选择包含转弯的路线"
     },
     
+    "traffic_light_route_settings": {
+        "_comment": "红绿灯路口路线配置（仅当strategy=traffic_light时生效）",
+        "min_traffic_lights": 1,
+        "_comment_min_traffic_lights": "路线最少经过的红绿灯数量，设为1表示至少经过1个红绿灯",
+        "max_traffic_lights": 0,
+        "_comment_max_traffic_lights": "路线最多经过的红绿灯数量，0=不限制",
+        "traffic_light_radius": 5.0,
+        "_comment_traffic_light_radius": "红绿灯检测半径(米)，路线经过此半径内视为经过该红绿灯",
+        "prefer_more_lights": true,
+        "_comment_prefer_more_lights": "是否优先选择经过更多红绿灯的路线"
+    },
+    
     "collection_settings": {
         "_comment": "数据收集参数配置",
         "frames_per_route": 10000,
         "_comment_frames_per_route": "每条路线最大收集帧数，到达终点或达到此数量后切换路线",
         "save_path": "E://datasets",
         "_comment_save_path": "数据保存路径，建议使用SSD以提高写入速度",
-        "auto_save_interval": 200,
+        "auto_save_interval": 100,
         "_comment_auto_save_interval": "自动保存间隔(帧数)，防止崩溃丢失数据",
         "realtime_sync": false,
         "_comment_realtime_sync": "是否启用实时同步（帧率限制），false=最快速度收集，true=按simulation_fps限制实际帧率",
