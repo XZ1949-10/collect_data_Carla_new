@@ -40,7 +40,7 @@ class PostProcessor:
         self.enable_avoid_stopping = enable_avoid_stopping
         
         # 后处理参数（基于原始实现）
-        self.brake_noise_threshold = 0.004      # 刹车噪声阈值
+        self.brake_noise_threshold = 0.005      # 刹车噪声阈值
         self.max_speed_limit_mps = MAX_SPEED_LIMIT_MPS  # 最高速度限制（m/s），从配置文件读取
         self.turning_steer_threshold = 0.1   # 转弯方向盘阈值
         self.turning_throttle_scale = 0.4     # 转弯时油门缩放因子
@@ -76,7 +76,7 @@ class PostProcessor:
         # if self.enable_brake_denoising:
         #     throttle=throttle*0.85
         
-        # # # 规则2: 油门刹车互斥 - 如果油门更大，则不刹车
+        # # 规则2: 油门刹车互斥 - 如果油门更大，则不刹车
         # if self.enable_throttle_brake_mutex:
         #     if throttle > brake:
         #         brake = 0.0

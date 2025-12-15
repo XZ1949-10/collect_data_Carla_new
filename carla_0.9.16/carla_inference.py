@@ -60,7 +60,8 @@ class CarlaInference:
                  post_processor_config=None,
                  enable_image_crop=True,
                  visualization_mode='spectator',
-                 npc_config=None):
+                 npc_config=None,
+                 weather='ClearNoon'):
         """
         初始化推理器
         
@@ -77,11 +78,19 @@ class CarlaInference:
                 - 'spectator': Spectator跟随模式（在CARLA UE4窗口中第三人称跟随）
                 - 'opencv': OpenCV独立窗口模式（旧模式，小弹窗）
             npc_config (NPCConfig): NPC配置，None表示不生成NPC
+            weather (str): 天气预设名称，支持:
+                - ClearNoon, ClearSunset
+                - CloudyNoon, CloudySunset
+                - WetNoon, WetSunset
+                - WetCloudyNoon, WetCloudySunset
+                - HardRainNoon, HardRainSunset
+                - SoftRainNoon, SoftRainSunset
         """
         # Carla连接参数
         self.host = host
         self.port = port
         self.town = town
+        self.weather = weather
         
         # 设备配置
         self.gpu_id = gpu_id
@@ -152,6 +161,9 @@ class CarlaInference:
         print(f"正在加载地图 {self.town}...")
         self.world = self.client.load_world(self.town)
         
+        # 设置天气
+        self._set_weather()
+        
         # 设置同步模式
         settings = self.world.get_settings()
         settings.synchronous_mode = True
@@ -173,6 +185,21 @@ class CarlaInference:
             self._spawn_npcs()
         
         print("成功连接到Carla服务器！")
+    
+    def _set_weather(self):
+        """设置天气"""
+        if self.weather is None:
+            return
+            
+        if hasattr(carla.WeatherParameters, self.weather):
+            weather_params = getattr(carla.WeatherParameters, self.weather)
+            self.world.set_weather(weather_params)
+            print(f"天气设置为: {self.weather}")
+        else:
+            print(f"⚠️ 未知的天气预设: {self.weather}，使用默认天气")
+            print(f"   支持的预设: ClearNoon, ClearSunset, CloudyNoon, CloudySunset, "
+                  f"WetNoon, WetSunset, WetCloudyNoon, WetCloudySunset, "
+                  f"HardRainNoon, HardRainSunset, SoftRainNoon, SoftRainSunset")
     
     def _spawn_npcs(self):
         """生成NPC车辆和行人"""
@@ -518,9 +545,9 @@ def main():
                         help='车辆类型')
     
     # 路线规划参数
-    parser.add_argument('--spawn-index', type=int, default=1,
+    parser.add_argument('--spawn-index', type=int, default=175,
                         help='起点索引')
-    parser.add_argument('--dest-index', type=int, default=41,
+    parser.add_argument('--dest-index', type=int, default=31,
                         help='终点索引')
     parser.add_argument('--list-spawns', action='store_true',
                         help='列出所有生成点位置后退出')
@@ -542,10 +569,16 @@ def main():
                         choices=['spectator', 'opencv'],
                         help='可视化模式: spectator=CARLA窗口第三人称跟随(推荐), opencv=独立小窗口(旧模式)')
     
+    # 天气参数
+    parser.add_argument('--weather', type=str, default='ClearSunset',
+                        help='天气预设: ClearNoon, ClearSunset, CloudyNoon, CloudySunset, '
+                             'WetNoon, WetSunset, WetCloudyNoon, WetCloudySunset, '
+                             'HardRainNoon, HardRainSunset, SoftRainNoon, SoftRainSunset')
+    
     # NPC参数
     parser.add_argument('--npc-vehicles', type=int, default=0,
                         help='NPC车辆数量，0表示不生成')
-    parser.add_argument('--npc-walkers', type=int, default=30,
+    parser.add_argument('--npc-walkers', type=int, default=0,
                         help='NPC行人数量，0表示不生成')
     parser.add_argument('--npc-ignore-lights', type=str2bool, default=False,
                         help='NPC车辆是否忽略红绿灯（默认遵守）')
@@ -585,7 +618,8 @@ def main():
         enable_post_processing=args.post_processing,
         enable_image_crop=args.image_crop,
         visualization_mode=args.vis_mode,
-        npc_config=npc_config
+        npc_config=npc_config,
+        weather=args.weather
     )
     
     try:
