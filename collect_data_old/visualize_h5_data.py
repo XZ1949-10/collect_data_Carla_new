@@ -142,13 +142,25 @@ class H5DataVisualizer:
                    font, 0.8, (255, 255, 255), 2)
         y_pos += 50
         
-        # 文件名
+        # 文件名 - 支持两行显示
         filename = os.path.basename(self.h5_file_path)
-        if len(filename) > 30:
-            filename = filename[:27] + "..."
-        cv2.putText(panel, filename, (10, y_pos), 
-                   font, 0.4, (200, 200, 200), 1)
-        y_pos += 40
+        max_chars_per_line = 45
+        if len(filename) <= max_chars_per_line:
+            cv2.putText(panel, filename, (10, y_pos), 
+                       font, 0.4, (200, 200, 200), 1)
+            y_pos += 40
+        else:
+            # 第一行
+            cv2.putText(panel, filename[:max_chars_per_line], (10, y_pos), 
+                       font, 0.4, (200, 200, 200), 1)
+            y_pos += 20
+            # 第二行（剩余部分）
+            remaining = filename[max_chars_per_line:]
+            if len(remaining) > max_chars_per_line:
+                remaining = remaining[:max_chars_per_line-3] + "..."
+            cv2.putText(panel, remaining, (10, y_pos), 
+                       font, 0.4, (200, 200, 200), 1)
+            y_pos += 25
         
         # 进度条
         progress = frame_idx / max(self.total_frames - 1, 1)

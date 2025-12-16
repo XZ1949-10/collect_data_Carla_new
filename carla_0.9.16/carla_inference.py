@@ -19,6 +19,8 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 import torch
+import numpy as np
+import cv2
 import carla
 
 # 导入项目模块
@@ -36,6 +38,19 @@ from carla_vehicle_controller import VehicleController
 from carla_model_predictor import ModelPredictor
 from carla_vehicle_spawner import VehicleSpawner
 from carla_npc_manager import NPCManager, NPCConfig
+
+# 可解释性模块（可选）
+try:
+    from carla_interpretability import (
+        InterpretabilityVisualizer, 
+        GradCAM, 
+        BrakeAnalyzer,
+        create_interpretability_visualizer
+    )
+    INTERPRETABILITY_AVAILABLE = True
+except ImportError:
+    INTERPRETABILITY_AVAILABLE = False
+    print("⚠️ 可解释性模块未找到，--interpret 功能不可用")
 
 
 class CarlaInference:
@@ -61,7 +76,15 @@ class CarlaInference:
                  enable_image_crop=True,
                  visualization_mode='spectator',
                  npc_config=None,
-                 weather='ClearNoon'):
+                 weather='ClearNoon',
+                 enable_interpretability=False,
+                 interpret_save_dir=None,
+                 interpret_save_interval=10,
+                 interpret_device='gpu',
+                 interpret_full_analysis=True,
+                 interpret_row1_layer=-3,
+                 interpret_row2_layers=None,
+                 interpret_ig_steps=30):
         """
         初始化推理器
         
@@ -85,6 +108,9 @@ class CarlaInference:
                 - WetCloudyNoon, WetCloudySunset
                 - HardRainNoon, HardRainSunset
                 - SoftRainNoon, SoftRainSunset
+            interpret_row1_layer (int): 第一行热力图使用的卷积层索引
+            interpret_row2_layers (list): 第二行多层级热力图使用的卷积层索引列表
+            interpret_ig_steps (int): 积分梯度的积分步数
         """
         # Carla连接参数
         self.host = host
@@ -138,7 +164,33 @@ class CarlaInference:
         self.frame_count = 0
         self.total_inference_time = 0.0
         
+        # 可解释性模块
+        self.enable_interpretability = enable_interpretability and INTERPRETABILITY_AVAILABLE
+        self.interpret_save_dir = interpret_save_dir
+        self.interpret_save_interval = interpret_save_interval  # 仪表板保存频率（每N帧保存一次，0表示不自动保存）
+        self.interpret_device = interpret_device  # 可解释性分析设备: 'gpu' 或 'cpu'
+        self.interpret_full_analysis = interpret_full_analysis  # 是否启用完整分析
+        self.interpret_row1_layer = interpret_row1_layer  # 第一行热力图卷积层索引
+        self.interpret_row2_layers = interpret_row2_layers if interpret_row2_layers else [-1, -3, -5]  # 第二行多层级热力图卷积层索引
+        self.interpret_ig_steps = interpret_ig_steps  # 积分梯度步数
+        self.interp_visualizer = None
+        self.grad_cam = None
+        self.brake_analyzer = None
+        
+        # 设置可解释性分析的设备
+        if interpret_device == 'cpu':
+            self.interp_compute_device = torch.device('cpu')
+        else:
+            self.interp_compute_device = self.device  # 与模型推理使用同一设备
+        
         print(f"初始化推理器 - 设备: {self.device}")
+        if self.enable_interpretability:
+            print(f"✅ 可解释性可视化已启用")
+            print(f"   - 分析设备: {self.interp_compute_device}")
+            print(f"   - 完整分析: {'是' if interpret_full_analysis else '否 (仅Grad-CAM)'}")
+            print(f"   - 第一行热力图层索引: {self.interpret_row1_layer}")
+            print(f"   - 第二行多层索引: {self.interpret_row2_layers}")
+            print(f"   - 积分梯度步数: {self.interpret_ig_steps}")
         
     def load_model(self, net_structure=2):
         """加载训练好的模型"""
@@ -150,6 +202,28 @@ class CarlaInference:
             enable_post_processing=self.enable_post_processing,
             post_processor_config=self.post_processor_config
         )
+        
+        # 初始化可解释性工具（学术严谨版）
+        if self.enable_interpretability:
+            # 使用新的综合分析器，支持选择计算设备和热力图层配置
+            self.interp_visualizer = create_interpretability_visualizer(
+                model, self.interp_compute_device, self.interpret_save_dir,
+                full_analysis=self.interpret_full_analysis,  # 根据参数决定是否启用完整分析
+                grad_cam_layer_index=self.interpret_row1_layer,  # 第一行热力图层索引
+                multi_layer_indices=self.interpret_row2_layers,  # 第二行多层级热力图层索引
+                ig_steps=self.interpret_ig_steps  # 积分梯度步数
+            )
+            # 保留旧接口兼容性
+            self.grad_cam = self.interp_visualizer.grad_cam
+            self.brake_analyzer = self.interp_visualizer.brake_analyzer
+            
+            if self.interpret_full_analysis:
+                print("✅ 学术严谨版可解释性分析器已初始化")
+                print("   包含: Grad-CAM, 遮挡敏感性, 积分梯度, 删除/插入曲线")
+            else:
+                print("✅ 轻量级可解释性分析器已初始化")
+                print("   包含: Grad-CAM (高计算量方法已禁用)")
+            print(f"   计算设备: {self.interp_compute_device}")
         
     def connect_carla(self):
         """连接到Carla服务器"""
@@ -295,7 +369,15 @@ class CarlaInference:
         print(f"自动重新规划: {'开启' if auto_replan else '关闭'}")
         print(f"目标帧率: {1.0/SYNC_MODE_DELTA_SECONDS:.0f} FPS (与模拟时间同步)")
         print("模型输出: 直接控制（无后处理）")
+        if self.enable_interpretability:
+            print("🔍 可解释性可视化: 已启用 (按 'i' 切换显示)")
         print(f"{'='*60}\n")
+        
+        # 可解释性窗口（学术严谨版）
+        show_interpretability = self.enable_interpretability
+        if self.enable_interpretability:
+            cv2.namedWindow('Model Interpretability', cv2.WINDOW_NORMAL)
+            cv2.resizeWindow('Model Interpretability', 2560, 1440)  # 2K分辨率
         
         # 等待摄像头数据
         print("等待摄像头数据...")
@@ -393,11 +475,12 @@ class CarlaInference:
                 if self.frame_count % PRINT_INTERVAL_FRAMES == 0:
                     self._print_status(start_time, current_speed, control_result)
                 
+                # 获取模型实际看到的图像（裁剪+缩放后的 200x88）
+                model_input_image = self.image_processor.get_processed_image(current_image)
+                
                 # 可视化
                 if visualize:
                     route_info = self.navigation_planner.get_route_info(self.vehicle)
-                    # 获取模型实际看到的图像（裁剪+缩放后的 200x88）
-                    model_input_image = self.image_processor.get_processed_image(current_image)
                     
                     # 获取车辆位置和朝向（用于路线图）
                     vehicle_transform = self.vehicle.get_transform()
@@ -416,6 +499,41 @@ class CarlaInference:
                         current_waypoint_index=current_waypoint_index
                     )
                 
+                # 可解释性可视化
+                if self.enable_interpretability and show_interpretability:
+                    # 将张量移到可解释性分析设备上
+                    img_tensor_interp = img_tensor.to(self.interp_compute_device)
+                    speed_tensor_interp = torch.FloatTensor([[current_speed]]).to(self.interp_compute_device)
+                    interp_dashboard = self._create_interpretability_dashboard(
+                        img_tensor_interp, speed_tensor_interp, model_input_image, 
+                        control_result, current_speed
+                    )
+                    cv2.imshow('Model Interpretability', interp_dashboard)
+                    
+                    # 自动保存仪表板（按设定频率保存，0表示不自动保存）
+                    if (self.interpret_save_dir is not None and 
+                        self.interpret_save_interval > 0 and 
+                        self.frame_count % self.interpret_save_interval == 0):
+                        save_path = os.path.join(self.interpret_save_dir, f"dashboard_{self.frame_count:06d}.png")
+                        cv2.imwrite(save_path, interp_dashboard)
+                
+                # 键盘处理
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('i') and self.enable_interpretability:
+                    show_interpretability = not show_interpretability
+                    if show_interpretability:
+                        print("🔍 可解释性窗口: 显示")
+                    else:
+                        print("🔍 可解释性窗口: 隐藏")
+                        cv2.destroyWindow('Model Interpretability')
+                        cv2.namedWindow('Model Interpretability', cv2.WINDOW_NORMAL)
+                elif key == ord('s') and self.enable_interpretability:
+                    # 手动保存当前帧
+                    self._save_interpretability_frame(model_input_image, control_result)
+                elif key == ord('p') and self.enable_interpretability:
+                    # 打印刹车统计
+                    self._print_brake_statistics()
+                
                 # 帧率控制：等待到目标帧时间，确保模拟时间与现实时间1:1同步
                 frame_elapsed = time.time() - frame_start_time
                 sleep_time = target_frame_time - frame_elapsed
@@ -428,7 +546,311 @@ class CarlaInference:
         finally:
             if visualize:
                 self.visualizer.close()
+            if self.enable_interpretability:
+                cv2.destroyAllWindows()
+                self._print_brake_statistics()
                 
+    def _create_interpretability_dashboard(self, img_tensor, speed_tensor, 
+                                            original_image, control_result, current_speed):
+        """
+        创建可解释性仪表板（学术严谨版）
+        
+        使用新的综合分析器，包含：
+        - Grad-CAM 热力图（定性）
+        - 遮挡敏感性分析（定量）
+        - 积分梯度（定量）
+        - 删除/插入曲线（定量）
+        
+        只显示当前选中分支的可视化结果。
+        """
+        # 添加速度信息到control_result
+        control_result_with_speed = control_result.copy()
+        control_result_with_speed['speed_normalized'] = current_speed
+        
+        # 使用综合分析器分析帧
+        if self.interp_visualizer is not None:
+            analysis_results = self.interp_visualizer.analyze_frame(
+                img_tensor, speed_tensor, original_image,
+                control_result_with_speed, self.current_command
+            )
+            
+            # 获取红绿灯信息
+            traffic_light_info = self._get_traffic_light_info()
+            
+            # 获取所有分支预测
+            all_branch_predictions = self.model_predictor.get_all_branch_predictions()
+            
+            # 渲染仪表板
+            dashboard = self.interp_visualizer.render_dashboard(
+                original_image, analysis_results, control_result,
+                self.current_command, traffic_light_info, all_branch_predictions
+            )
+            
+            # 嵌入历史曲线图到 Control History 面板
+            # 布局计算 (2560x1440):
+            # row6_y = 60 + 150 + 8 + 130 + 8 + 130 + 8 + 130 + 8 + 190 + 8 = 830
+            # row6_h = (1440 - 45 - 5) - 830 = 560 (动态计算，最小200)
+            # 面板标题高度约25px，所以内容从 row6_y + 25 开始
+            # History面板宽度 = (2560 - 24 - 20) * 0.40 ≈ 1006
+            if self.brake_analyzer is not None:
+                # 计算实际可用的高度
+                row6_y = 830
+                footer_y = 1440 - 45
+                row6_h = max(footer_y - 5 - row6_y, 200)
+                
+                history_w = 985  # 面板宽度减去边距
+                history_h = row6_h - 30  # 减去标题和边距
+                history_x = 18  # MARGIN + 6
+                history_y = row6_y + 25  # 标题高度
+                
+                history_plot = self.brake_analyzer.plot_history(width=history_w, height=history_h)
+                # 确保不越界
+                y_end = min(history_y + history_h, footer_y - 5)
+                x_end = min(history_x + history_w, dashboard.shape[1])
+                h_actual = y_end - history_y
+                w_actual = x_end - history_x
+                if h_actual > 0 and w_actual > 0:
+                    dashboard[history_y:y_end, history_x:x_end] = history_plot[:h_actual, :w_actual]
+            
+            return dashboard
+        else:
+            # 回退到简单仪表板
+            return self._create_simple_dashboard(original_image, control_result)
+    
+    def _get_traffic_light_info(self):
+        """获取最近红绿灯的信息"""
+        if self.vehicle is None or self.world is None:
+            return None
+        
+        try:
+            vehicle_location = self.vehicle.get_location()
+            traffic_lights = self.world.get_actors().filter('traffic.traffic_light')
+            
+            nearest_tl = None
+            min_distance = float('inf')
+            
+            for tl in traffic_lights:
+                tl_location = tl.get_location()
+                distance = vehicle_location.distance(tl_location)
+                if distance < min_distance and distance < 50:  # 50米范围内
+                    min_distance = distance
+                    nearest_tl = tl
+            
+            if nearest_tl is not None:
+                state_map = {
+                    carla.TrafficLightState.Red: 'Red',
+                    carla.TrafficLightState.Yellow: 'Yellow',
+                    carla.TrafficLightState.Green: 'Green',
+                }
+                state = state_map.get(nearest_tl.get_state(), 'Unknown')
+                return {
+                    'state': state,
+                    'distance': min_distance
+                }
+        except:
+            pass
+        
+        return None
+    
+    def _create_simple_dashboard(self, original_image, control_result):
+        """创建简单仪表板（回退方案）"""
+        dash_width, dash_height = 800, 400
+        dashboard = np.zeros((dash_height, dash_width, 3), dtype=np.uint8)
+        dashboard[:] = (30, 30, 32)
+        
+        cv2.putText(dashboard, "Simple Dashboard (Interpretability module not fully loaded)", 
+                    (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1, cv2.LINE_AA)
+        
+        # 显示原图
+        orig_resized = cv2.resize(original_image, (300, 132))
+        orig_bgr = cv2.cvtColor(orig_resized, cv2.COLOR_RGB2BGR)
+        dashboard[50:182, 20:320] = orig_bgr
+        
+        # 显示控制值
+        cv2.putText(dashboard, f"Steer: {control_result['steer']:+.3f}", (350, 80),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 230, 230), 1, cv2.LINE_AA)
+        cv2.putText(dashboard, f"Throttle: {control_result['throttle']:.3f}", (350, 110),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 230, 100), 1, cv2.LINE_AA)
+        cv2.putText(dashboard, f"Brake: {control_result['brake']:.3f}", (350, 140),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 255), 1, cv2.LINE_AA)
+        
+        return dashboard
+    
+    def _draw_panel(self, img, x, y, w, h, title, title_color=(220, 220, 220)):
+        """绘制面板（更清晰的边框和标题）"""
+        # 面板背景
+        cv2.rectangle(img, (x, y), (x+w, y+h), (42, 42, 48), -1)
+        # 边框（更粗）
+        cv2.rectangle(img, (x, y), (x+w, y+h), (70, 70, 80), 2)
+        # 标题（更大字体）
+        cv2.putText(img, title, (x+8, y+18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, title_color, 1, cv2.LINE_AA)
+    
+    def _draw_control_bar(self, img, x, y, w, h, value, label, color, warning_threshold=None):
+        """绘制控制条（更大更清晰）"""
+        # 背景
+        cv2.rectangle(img, (x, y), (x+w, y+h), (55, 55, 60), -1)
+        # 值条
+        bar_w = int(w * min(1.0, max(0.0, value)))
+        if warning_threshold and value > warning_threshold:
+            bar_color = (60, 60, 255)  # 警告色（红）
+        else:
+            bar_color = color
+        if bar_w > 0:
+            cv2.rectangle(img, (x, y), (x+bar_w, y+h), bar_color, -1)
+        # 边框
+        cv2.rectangle(img, (x, y), (x+w, y+h), (90, 90, 100), 2)
+        # 标签和值（放在条的右侧，留足够空间）
+        text = f"{label}: {value:.3f}"
+        cv2.putText(img, text, (x+w+12, y+h-6), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv2.LINE_AA)
+    
+    def _draw_steer_bar(self, img, x, y, w, h, value, label):
+        """绘制转向条（中心对称，更清晰）"""
+        cv2.rectangle(img, (x, y), (x+w, y+h), (55, 55, 60), -1)
+        center = x + w // 2
+        steer_x = center + int((w//2) * value)
+        cv2.rectangle(img, (min(center, steer_x), y), (max(center, steer_x), y+h), (0, 230, 230), -1)
+        cv2.line(img, (center, y), (center, y+h), (120, 120, 130), 3)
+        cv2.rectangle(img, (x, y), (x+w, y+h), (90, 90, 100), 2)
+        # 标签和值（放在条的右侧，留足够空间）
+        text = f"{label}: {value:+.3f}"
+        cv2.putText(img, text, (x+w+12, y+h-6), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 230, 230), 2, cv2.LINE_AA)
+    
+    def _draw_stat_item(self, img, x, y, label, value, warn=False):
+        """绘制统计项（更大字体）"""
+        color = (120, 120, 255) if warn else (220, 220, 220)
+        cv2.putText(img, f"{label}:", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (170, 170, 170), 1, cv2.LINE_AA)
+        cv2.putText(img, str(value), (x + 180, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1, cv2.LINE_AA)
+    
+    def _draw_traffic_light_indicator(self, img, x, y):
+        """
+        绘制红绿灯指示器
+        
+        说明：显示 CARLA 仿真环境中车辆附近最近的红绿灯状态
+        用途：帮助判断模型在红灯时是否正确输出刹车信号
+        """
+        if self.vehicle is None or self.world is None:
+            cv2.putText(img, "N/A", (x, y+30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 100, 100), 1, cv2.LINE_AA)
+            return
+        
+        vehicle_loc = self.vehicle.get_location()
+        traffic_lights = self.world.get_actors().filter('traffic.traffic_light')
+        
+        nearest_tl, nearest_dist = None, float('inf')
+        for tl in traffic_lights:
+            dist = vehicle_loc.distance(tl.get_location())
+            if dist < nearest_dist:
+                nearest_dist, nearest_tl = dist, tl
+        
+        if nearest_tl and nearest_dist < 50:
+            state = str(nearest_tl.get_state()).split('.')[-1]
+            
+            # 绘制红绿灯图标（更大）
+            light_x, light_y = x + 45, y + 50
+            cv2.rectangle(img, (light_x-20, light_y-45), (light_x+20, light_y+45), (25, 25, 25), -1)
+            cv2.rectangle(img, (light_x-20, light_y-45), (light_x+20, light_y+45), (90, 90, 90), 2)
+            
+            # 三个灯（更大）
+            colors = [(60, 60, 60), (60, 60, 60), (60, 60, 60)]
+            if 'Red' in state:
+                colors[0] = (0, 0, 255)
+            elif 'Yellow' in state:
+                colors[1] = (0, 220, 255)
+            else:
+                colors[2] = (0, 255, 0)
+            
+            cv2.circle(img, (light_x, light_y-28), 14, colors[0], -1)
+            cv2.circle(img, (light_x, light_y), 14, colors[1], -1)
+            cv2.circle(img, (light_x, light_y+28), 14, colors[2], -1)
+            
+            # 状态文字（更大）
+            cv2.putText(img, state, (light_x + 35, light_y - 5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (220, 220, 220), 1, cv2.LINE_AA)
+            cv2.putText(img, f"Distance: {nearest_dist:.0f}m", (light_x + 35, light_y + 25), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (170, 170, 170), 1, cv2.LINE_AA)
+            
+            # 红灯警告（更醒目）
+            if 'Red' in state and nearest_dist < 30:
+                all_preds = self.model_predictor.get_all_branch_predictions()
+                if all_preds is not None:
+                    max_brake = max(all_preds[2], all_preds[5], all_preds[8], all_preds[11])
+                    if max_brake < 0.3:
+                        cv2.rectangle(img, (x, y + 95), (x + 200, y + 120), (0, 0, 180), -1)
+                        cv2.putText(img, "WARNING: LOW BRAKE!", (x + 10, y + 113), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        else:
+            cv2.putText(img, "No traffic light", (x, y + 40), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (120, 120, 120), 1, cv2.LINE_AA)
+            cv2.putText(img, "within 50m", (x, y + 65), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (100, 100, 100), 1, cv2.LINE_AA)
+    
+    def _save_interpretability_frame(self, original_image, control_result):
+        """保存可解释性帧"""
+        if self.interpret_save_dir is None:
+            self.interpret_save_dir = './interpret_output'
+        
+        import os
+        os.makedirs(self.interpret_save_dir, exist_ok=True)
+        
+        filename = f"interp_{self.frame_count:06d}.png"
+        filepath = os.path.join(self.interpret_save_dir, filename)
+        
+        # 保存原图
+        orig_bgr = cv2.cvtColor(original_image, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(filepath, orig_bgr)
+        
+        print(f"✅ 已保存: {filepath}")
+    
+    def _print_brake_statistics(self):
+        """打印刹车统计和可解释性指标"""
+        if self.brake_analyzer is None:
+            print("刹车分析器未初始化")
+            return
+        
+        stats = self.brake_analyzer.get_statistics()
+        print(f"\n{'='*60}")
+        print("刹车行为统计")
+        print(f"{'='*60}")
+        print(f"总帧数: {stats.get('total_frames', 0)}")
+        print(f"刹车帧占比 (>0.1): {stats.get('brake_ratio', 0)*100:.1f}%")
+        print(f"急刹车帧占比 (>0.5): {stats.get('hard_brake_ratio', 0)*100:.1f}%")
+        print(f"平均刹车值: {stats.get('avg_brake', 0):.3f}")
+        print(f"最大刹车值: {stats.get('max_brake', 0):.3f}")
+        
+        # 打印可解释性定量指标
+        if self.interp_visualizer is not None:
+            print(f"\n{'='*60}")
+            print("可解释性定量指标汇总 (Academic Metrics)")
+            print(f"{'='*60}")
+            summary = self.interp_visualizer.get_metrics_summary()
+            
+            if summary:
+                occ = summary.get('occlusion_sensitivity', {})
+                ig = summary.get('integrated_gradients', {})
+                di = summary.get('deletion_insertion', {})
+                
+                print(f"分析帧数: {summary.get('total_frames_analyzed', 0)}")
+                print(f"\n遮挡敏感性 (Occlusion Sensitivity):")
+                print(f"  平均值: {occ.get('mean', 0):.4f}")
+                print(f"  标准差: {occ.get('std', 0):.4f}")
+                
+                print(f"\n积分梯度 (Integrated Gradients):")
+                print(f"  完整性误差: {ig.get('mean_completeness_error', 0):.4f}")
+                
+                print(f"\n删除/插入曲线 (Deletion/Insertion):")
+                print(f"  删除AUC (越低越好): {di.get('mean_deletion_auc', 0):.4f}")
+                print(f"  插入AUC (越高越好): {di.get('mean_insertion_auc', 0):.4f}")
+                print(f"  综合得分: {di.get('mean_combined_score', 0):+.4f}")
+            
+            # 导出指标到文件
+            if self.interpret_save_dir:
+                metrics_path = os.path.join(self.interpret_save_dir, 'metrics.json')
+                self.interp_visualizer.save_metrics(metrics_path)
+                print(f"\n📊 指标已导出到: {metrics_path}")
+        
+        print(f"{'='*60}\n")
+
     def _debug_print_all_branches(self, control_result):
         """调试：打印所有分支的预测值"""
         all_predictions = self.model_predictor.get_all_branch_predictions()
@@ -492,6 +914,11 @@ class CarlaInference:
         """清理资源"""
         print("正在清理资源...")
         
+        # 清理可解释性模块（释放钩子和内存）
+        if self.interp_visualizer is not None:
+            self.interp_visualizer.cleanup()
+            print("  - 可解释性模块已清理")
+        
         if self.sensor_manager is not None:
             self.sensor_manager.cleanup()
             
@@ -527,7 +954,7 @@ def main():
     parser = argparse.ArgumentParser(description='Carla自动驾驶模型实时推理（模块化版本）')
     
     # 模型参数
-    parser.add_argument('--model-path', type=str, default='./model/ddp_6gpu_6_best.pth',
+    parser.add_argument('--model-path', type=str, default='./model/finetune_traffic_light_v1_best.pth',
                         help='训练好的模型权重路径')
     parser.add_argument('--net-structure', type=int, default=2,
                         help='网络结构类型 (1|2|3)')
@@ -589,6 +1016,25 @@ def main():
     parser.add_argument('--npc-speed-diff', type=float, default=30.0,
                         help='NPC车辆速度差异百分比')
     
+    # 可解释性参数
+    parser.add_argument('--interpret', type=str2bool, default=False,
+                        help='启用可解释性可视化（Grad-CAM热力图、刹车分析等）')
+    parser.add_argument('--interpret-save-dir', type=str, default='./interpret_output',
+                        help='可解释性分析结果保存目录')
+    parser.add_argument('--interpret-save-interval', type=int, default=1,
+                        help='可解释性仪表板保存频率（每N帧保存一次，0表示不自动保存）')
+    parser.add_argument('--interpret-device', type=str, default='gpu',
+                        choices=['gpu', 'cpu'],
+                        help='可解释性分析计算设备: gpu=使用GPU(快但与CARLA竞争资源), cpu=使用CPU(慢但不影响CARLA渲染)')
+    parser.add_argument('--interpret-full', type=str2bool, default=False,
+                        help='启用完整可解释性分析(Occlusion/IG/Deletion-Insertion)，False则只用Grad-CAM')
+    parser.add_argument('--interpret-row1-layer', type=int, default=-3,
+                        help='第一行热力图使用的卷积层索引 (-1=最后层, -3=推荐, -5=高分辨率)')
+    parser.add_argument('--interpret-row2-layers', type=str, default='-8,-7,-6,-5,-4,-3,-2,-1',
+                        help='第二行多层级热力图使用的卷积层索引列表，逗号分隔 (如: -8,-7,-6,-5,-4,-3,-2,-1 表示所有8层)')
+    parser.add_argument('--interpret-ig-steps', type=int, default=30,
+                        help='积分梯度(Integrated Gradients)的积分步数，越大精度越高但越慢 (推荐: 30-50)')
+    
     args = parser.parse_args()
     
     # 将相对路径转换为基于脚本目录的绝对路径
@@ -608,6 +1054,9 @@ def main():
             vehicle_speed_difference=args.npc_speed_diff
         )
     
+    # 解析第二行多层级热力图的层索引
+    interpret_row2_layers = [int(x.strip()) for x in args.interpret_row2_layers.split(',')]
+    
     # 创建推理器
     inferencer = CarlaInference(
         model_path=args.model_path,
@@ -619,7 +1068,15 @@ def main():
         enable_image_crop=args.image_crop,
         visualization_mode=args.vis_mode,
         npc_config=npc_config,
-        weather=args.weather
+        weather=args.weather,
+        enable_interpretability=args.interpret,
+        interpret_save_dir=args.interpret_save_dir,
+        interpret_save_interval=args.interpret_save_interval,
+        interpret_device=args.interpret_device,
+        interpret_full_analysis=args.interpret_full,
+        interpret_row1_layer=args.interpret_row1_layer,
+        interpret_row2_layers=interpret_row2_layers,
+        interpret_ig_steps=args.interpret_ig_steps
     )
     
     try:
