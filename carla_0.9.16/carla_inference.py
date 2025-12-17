@@ -954,7 +954,7 @@ def main():
     parser = argparse.ArgumentParser(description='Carla自动驾驶模型实时推理（模块化版本）')
     
     # 模型参数
-    parser.add_argument('--model-path', type=str, default='./model/finetune_traffic_light_v1_best.pth',
+    parser.add_argument('--model-path', type=str, default='./model/ddp_dynamic_5_best.pth',
                         help='训练好的模型权重路径')
     parser.add_argument('--net-structure', type=int, default=2,
                         help='网络结构类型 (1|2|3)')
@@ -972,11 +972,11 @@ def main():
                         help='车辆类型')
     
     # 路线规划参数
-    parser.add_argument('--spawn-index', type=int, default=175,
+    parser.add_argument('--spawn-index', type=int, default=1,
                         help='起点索引')
-    parser.add_argument('--dest-index', type=int, default=31,
+    parser.add_argument('--dest-index', type=int, default=41,
                         help='终点索引')
-    parser.add_argument('--list-spawns', action='store_true',
+    parser.add_argument('--list-spawns', action='store_true',        
                         help='列出所有生成点位置后退出')
     
     # 运行参数
@@ -984,7 +984,7 @@ def main():
                         help='运行时长（秒），-1表示无限运行')
     
     # 功能开关
-    parser.add_argument('--auto-replan', type=str2bool, default=False,
+    parser.add_argument('--auto-replan', type=str2bool, default=True,
                         help='到达目的地后自动重新规划路线')
     parser.add_argument('--visualize', type=str2bool, default=True,
                         help='显示可视化窗口')
@@ -1019,7 +1019,7 @@ def main():
     # 可解释性参数
     parser.add_argument('--interpret', type=str2bool, default=False,
                         help='启用可解释性可视化（Grad-CAM热力图、刹车分析等）')
-    parser.add_argument('--interpret-save-dir', type=str, default='./interpret_output',
+    parser.add_argument('--interpret-save-dir', type=str, default='./interpret_output_1_best',
                         help='可解释性分析结果保存目录')
     parser.add_argument('--interpret-save-interval', type=int, default=1,
                         help='可解释性仪表板保存频率（每N帧保存一次，0表示不自动保存）')

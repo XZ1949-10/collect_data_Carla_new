@@ -1,0 +1,15 @@
+# TurtleBot 推理依赖
+
+# PyTorch (根据你的 CUDA 版本选择)
+torch>=1.7.0
+
+# 图像处理
+opencv-python>=4.0.0
+numpy>=1.18.0
+
+# ROS (通过 apt 安装)
+# rospy
+# cv_bridge
+# sensor_msgs
+# geometry_msgs
+# nav_msgs

@@ -56,7 +56,7 @@ POST_PROCESSOR_DEFAULT_CONFIG = {
     'enable_throttle_brake_mutex': True,   # 启用油门刹车互斥
     'enable_speed_limit': True,            # 启用速度限制
     'enable_turning_slowdown': True,       # 启用转弯减速
-    'enable_avoid_stopping': False          # 启用避免停车
+    'enable_avoid_stopping': True          # 启用避免停车
 }
 
 # ==================== 同步模式参数 ====================

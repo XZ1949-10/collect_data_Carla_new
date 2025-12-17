@@ -89,7 +89,7 @@ class PostProcessor:
         # 规则4: 转弯减速 - 当命令为左转(3)或右转(4)时降低油门
         if self.enable_turning_slowdown and current_command is not None:
             if current_command in [3, 4]:  # 3=左转, 4=右转
-                throttle = throttle * 1.0
+                throttle = throttle * 0.6
         
         # 规则5: 避免停车逻辑
         if self.enable_avoid_stopping and pred_speed_normalized is not None:
