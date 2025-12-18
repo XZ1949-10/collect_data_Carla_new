@@ -13,6 +13,10 @@
 
 </div>
 
+## 数据集获取
+
+如需训练数据集，请添加 QQ：1948627929
+
 ## 这是什么
 
 一套完整的 CIL（Conditional Imitation Learning）自动驾驶流水线，支持 **CARLA 仿真** 和 **TurtleBot 实机**。
@@ -32,7 +36,7 @@
 
 ## 效果演示
 
-### CARLA 推理效果
+### CARLA 推理效果（不遵循交通规则）
 
 <table>
 <tr>
@@ -66,17 +70,21 @@ https://github.com/user-attachments/assets/c659094c-47b0-4d47-a513-e5332857a732
 
 https://github.com/user-attachments/assets/2b613e98-06e3-4367-8ff4-cc6aa3442a33
 
-### 红绿灯和车辆遵循
+### 红绿灯和车辆遵循 （遵循红绿灯和车辆避障）
 
 https://github.com/user-attachments/assets/51b56508-7ab4-41a9-b756-5c9b33f66a90
 
 ### 模型可解释性
 
+<div align="center">
 <img src="模型可解释性图片.png" alt="模型可解释性" width="700"/>
+</div>
 
 ### TurtleBot 实车数据收集界面
 
+<div align="center">
 <img src="tutlebot实车收集数据界面.png" alt="TurtleBot实车收集数据界面" width="700"/>
+</div>
 
 ## 项目结构
 
