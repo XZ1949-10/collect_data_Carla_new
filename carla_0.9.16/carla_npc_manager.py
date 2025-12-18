@@ -29,7 +29,7 @@ class NPCConfig:
     vehicles_ignore_walkers: bool = False
     vehicle_filter: str = 'vehicle.*'
     four_wheels_only: bool = True
-    use_back_spawn_points: bool = True  # 使用后半部分生成点，避免与自车冲突
+    use_back_spawn_points: bool = False  # 使用全部生成点以支持更多NPC
     # NPC车辆行为参数
     vehicle_distance: float = 3.0  # 跟车距离（米）
     vehicle_speed_difference: float = 30.0  # 速度差异百分比
@@ -133,7 +133,7 @@ class NPCManager:
                        ignore_walkers: bool = False,
                        vehicle_filter: str = 'vehicle.*',
                        four_wheels_only: bool = True,
-                       use_back_spawn_points: bool = True,
+                       use_back_spawn_points: bool = False,
                        vehicle_distance: float = 3.0,
                        vehicle_speed_difference: float = 30.0) -> int:
         """生成 NPC 车辆"""
@@ -149,8 +149,14 @@ class NPCManager:
             return 0
         
         spawn_points = self.world.get_map().get_spawn_points()
+        total_spawn_points = len(spawn_points)
+        print(f"📍 地图总生成点数量: {total_spawn_points}")
+        
         if use_back_spawn_points:
             spawn_points = spawn_points[len(spawn_points) // 2:]
+            print(f"📍 使用后半部分生成点: {len(spawn_points)}")
+        else:
+            print(f"📍 使用全部生成点: {len(spawn_points)}")
         
         random.shuffle(spawn_points)
         

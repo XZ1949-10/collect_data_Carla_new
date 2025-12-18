@@ -155,9 +155,18 @@ class AnomalyConfig:
     rollover_enabled: bool = True
     rollover_pitch_threshold: float = 45.0
     rollover_roll_threshold: float = 45.0
-    # 卡住检测
+    # 卡住检测（智能版）
     stuck_enabled: bool = True
     stuck_speed_threshold: float = 0.5
+    stuck_time_threshold: float = 5.0
+    # 智能卡住检测参数
+    stuck_position_threshold: float = 0.5  # 位置变化阈值（米），小于此值视为未移动
+    stuck_throttle_threshold: float = 0.1  # 油门阈值，大于此值表示在尝试移动
+    stuck_check_traffic_light: bool = True  # 是否检查红绿灯状态（等红灯不算卡住）
+    stuck_check_blocking: bool = True  # 是否检查前方障碍物
+    stuck_blocking_distance: float = 5.0  # 前方障碍物检测距离（米）
+    stuck_max_wait_at_light: float = 60.0  # 等红灯最大等待时间（秒），超过视为异常
+    stuck_consecutive_attempts: int = 3  # 连续尝试移动失败次数阈值
     stuck_time_threshold: float = 5.0
 
 
@@ -173,7 +182,7 @@ class NPCConfig:
     vehicles_ignore_walkers: bool = False
     vehicle_filter: str = 'vehicle.*'
     four_wheels_only: bool = True
-    use_back_spawn_points: bool = True
+    use_back_spawn_points: bool = False  # 使用全部生成点以支持更多NPC
     # NPC车辆行为参数
     vehicle_distance: float = 3.0  # 跟车距离（米），与前车保持的最小距离
     vehicle_speed_difference: float = 30.0  # 速度差异百分比，相对于限速的随机偏差范围

@@ -114,8 +114,8 @@ class BaseDataCollector:
         self.total_saved_segments = 0
         self.total_saved_frames = 0
         
-        # 检测器
-        self._anomaly_detector = AnomalyDetector(self.config.anomaly)
+        # 检测器（智能版，传入 world 用于红绿灯和障碍物检测）
+        self._anomaly_detector = AnomalyDetector(self.config.anomaly, world=self.world)
         self._collision_handler = CollisionHandler(on_collision=self._on_collision_event)
         
         # 噪声器
@@ -264,6 +264,9 @@ class BaseDataCollector:
         print(f"正在加载地图 {self.config.town}...")
         self.world = self.client.load_world(self.config.town)
         self.blueprint_library = self.world.get_blueprint_library()
+        
+        # 更新异常检测器的 world 引用（用于智能卡住检测）
+        self._anomaly_detector.set_world(self.world)
         
         # 初始化同步模式管理器和资源生命周期辅助
         sync_config = SyncModeConfig(simulation_fps=self.config.simulation_fps)
@@ -526,10 +529,11 @@ class BaseDataCollector:
         return 3.6 * np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
     
     def check_anomaly(self) -> bool:
-        """检测车辆异常"""
+        """检测车辆异常（智能版，考虑红绿灯和障碍物）"""
         if self.vehicle is None:
             return False
-        return self._anomaly_detector.check(self.vehicle)
+        # 传递 vehicle 对象用于智能检测（红绿灯、障碍物等）
+        return self._anomaly_detector.check(self.vehicle, vehicle=self.vehicle)
     
     @property
     def collision_detected(self) -> bool:

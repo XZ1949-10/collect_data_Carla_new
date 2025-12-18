@@ -752,15 +752,17 @@ class ResourceLifecycleHelper:
     def spawn_vehicle_safe(self, blueprint, transform, 
                            stabilize_ticks: int = 10,
                            max_retries: int = 3,
-                           retry_delay: float = 0.5) -> 'carla.Actor':
+                           retry_delay: float = 0.5,
+                           clear_if_occupied: bool = True) -> 'carla.Actor':
         """
         安全地生成车辆（带重试机制）
         
         流程：
         1. 检查生成点是否被占用
-        2. 在当前模式下尝试生成
-        3. 如果失败，等待后重试
-        4. 如果是同步模式，执行多次 tick 等待物理稳定
+        2. 如果被占用且 clear_if_occupied=True，尝试清除占用的车辆
+        3. 在当前模式下尝试生成
+        4. 如果失败，等待后重试
+        5. 如果是同步模式，执行多次 tick 等待物理稳定
         
         参数:
             blueprint: 车辆蓝图
@@ -768,6 +770,7 @@ class ResourceLifecycleHelper:
             stabilize_ticks: 稳定所需的 tick 次数
             max_retries: 最大重试次数
             retry_delay: 重试间隔（秒）
+            clear_if_occupied: 如果生成点被占用，是否尝试清除占用的车辆
             
         返回:
             carla.Actor: 生成的车辆，失败返回 None
@@ -776,9 +779,18 @@ class ResourceLifecycleHelper:
             try:
                 # 检查生成点是否被占用
                 if not self.is_spawn_point_free(transform.location):
-                    print(f"  ⚠️ 生成点被占用，等待后重试 ({attempt + 1}/{max_retries})...")
-                    time.sleep(retry_delay)
-                    continue
+                    if clear_if_occupied:
+                        print(f"  ⚠️ 生成点被占用，尝试清除附近车辆 ({attempt + 1}/{max_retries})...")
+                        self._clear_vehicles_at_location(transform.location, radius=5.0)
+                        time.sleep(retry_delay)
+                        # 再次检查
+                        if not self.is_spawn_point_free(transform.location):
+                            print(f"  ⚠️ 清除后仍被占用，继续重试...")
+                            continue
+                    else:
+                        print(f"  ⚠️ 生成点被占用，等待后重试 ({attempt + 1}/{max_retries})...")
+                        time.sleep(retry_delay)
+                        continue
                 
                 vehicle = self.world.try_spawn_actor(blueprint, transform)
                 
@@ -804,6 +816,61 @@ class ResourceLifecycleHelper:
         
         print(f"❌ 生成车辆失败（已重试 {max_retries} 次）")
         return None
+    
+    def _clear_vehicles_at_location(self, location, radius: float = 5.0) -> int:
+        """清除指定位置附近的所有车辆
+        
+        参数:
+            location: 位置
+            radius: 检测半径（米）
+            
+        返回:
+            int: 清除的车辆数量
+        """
+        try:
+            vehicles = self.world.get_actors().filter('*vehicle*')
+            vehicles_to_remove = []
+            
+            for v in vehicles:
+                try:
+                    if v.get_location().distance(location) < radius:
+                        vehicles_to_remove.append(v)
+                except:
+                    pass
+            
+            if not vehicles_to_remove:
+                return 0
+            
+            print(f"  🚗 发现 {len(vehicles_to_remove)} 辆车在生成点附近，正在清除...")
+            
+            # 在同步模式下销毁actor可能有问题，先切换到异步模式
+            was_sync = self.sync_mgr.is_sync
+            if was_sync:
+                self.sync_mgr.ensure_async_mode(wait=True)
+            
+            # 逐个销毁车辆
+            from .actor_utils import safe_destroy_actor
+            destroyed = 0
+            for v in vehicles_to_remove:
+                try:
+                    if safe_destroy_actor(v, silent=True):
+                        destroyed += 1
+                except Exception as e:
+                    pass
+            
+            time.sleep(0.5)  # 等待销毁完成
+            
+            # 恢复同步模式
+            if was_sync:
+                self.sync_mgr.ensure_sync_mode(warmup=True, verify=False)
+            
+            print(f"  ✅ 已清除 {destroyed} 辆车")
+            
+            return destroyed
+            
+        except Exception as e:
+            print(f"  ⚠️ 清除车辆失败: {e}")
+            return 0
     
     def create_sensor_safe(self, blueprint, transform, 
                            attach_to, callback,

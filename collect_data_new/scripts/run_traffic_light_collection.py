@@ -480,14 +480,8 @@ class TrafficLightCollector(AutoFullTownCollector):
                 print("   - 增加 max_distance 参数")
                 return
             
-            # 提取所有路线使用的生成点索引
-            route_spawn_indices = set()
-            for start_idx, end_idx, _ in routes:
-                route_spawn_indices.add(start_idx)
-                route_spawn_indices.add(end_idx)
-            
-            # 生成NPC（排除路线使用的生成点，避免冲突）
-            self._spawn_npcs(excluded_spawn_indices=list(route_spawn_indices))
+            # 生成NPC（不再排除所有路线的生成点，而是在每条路线开始前动态清除）
+            self._spawn_npcs(excluded_spawn_indices=None)
             
             print(f"\n🚦 共找到 {len(routes)} 条红绿灯路线")
             

@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<!--
+TurtleBot 数据收集启动文件
+
+整合了以下三个启动命令:
+1. roslaunch turtlebot_bringup minimal.launch - TurtleBot 底盘驱动
+2. roslaunch freenect_launch freenect.launch - Kinect 摄像头驱动
+3. rosrun joy joy_node - 手柄驱动
+
+使用方法:
+    roslaunch turtlebot_collect turtlebot_collect.launch
+
+可选参数:
+    roslaunch turtlebot_collect turtlebot_collect.launch joystick:=false  # 禁用手柄
+    roslaunch turtlebot_collect turtlebot_collect.launch kinect:=false    # 禁用 Kinect
+-->
+<launch>
+    <!-- ============ 参数配置 ============ -->
+    
+    <!-- 是否启用各组件 -->
+    <arg name="base" default="true" doc="启用 TurtleBot 底盘"/>
+    <arg name="kinect" default="true" doc="启用 Kinect 摄像头"/>
+    <arg name="joystick" default="true" doc="启用手柄控制"/>
+    
+    <!-- TurtleBot 配置 -->
+    <arg name="base_type" default="kobuki" doc="底盘类型: kobuki, create"/>
+    <arg name="stacks" default="hexagons" doc="堆叠类型"/>
+    <arg name="3d_sensor" default="kinect" doc="3D传感器类型"/>
+    
+    <!-- 手柄配置 -->
+    <arg name="joy_dev" default="/dev/input/js0" doc="手柄设备路径"/>
+    <arg name="deadzone" default="0.1" doc="手柄死区"/>
+    <arg name="autorepeat_rate" default="20" doc="自动重复频率 (Hz)"/>
+    
+    <!-- Kinect 配置 -->
+    <arg name="depth_registration" default="true" doc="深度配准"/>
+    <arg name="rgb_processing" default="true" doc="RGB 处理"/>
+    <arg name="depth_processing" default="false" doc="深度处理 (数据收集不需要)"/>
+    
+    
+    <!-- ============ 1. TurtleBot 底盘驱动 ============ -->
+    <!-- 等同于: roslaunch turtlebot_bringup minimal.launch -->
+    <group if="$(arg base)">
+        <include file="$(find turtlebot_bringup)/launch/minimal.launch">
+            <arg name="base" value="$(arg base_type)"/>
+            <arg name="stacks" value="$(arg stacks)"/>
+            <arg name="3d_sensor" value="$(arg 3d_sensor)"/>
+        </include>
+    </group>
+    
+    
+    <!-- ============ 2. Kinect 摄像头驱动 ============ -->
+    <!-- 等同于: roslaunch freenect_launch freenect.launch -->
+    <group if="$(arg kinect)">
+        <include file="$(find freenect_launch)/launch/freenect.launch">
+            <arg name="depth_registration" value="$(arg depth_registration)"/>
+            <arg name="rgb_processing" value="$(arg rgb_processing)"/>
+            <arg name="depth_processing" value="$(arg depth_processing)"/>
+        </include>
+    </group>
+    
+    
+    <!-- ============ 3. 手柄驱动 ============ -->
+    <!-- 等同于: rosrun joy joy_node -->
+    <group if="$(arg joystick)">
+        <node name="joy_node" pkg="joy" type="joy_node" output="screen">
+            <param name="dev" value="$(arg joy_dev)"/>
+            <param name="deadzone" value="$(arg deadzone)"/>
+            <param name="autorepeat_rate" value="$(arg autorepeat_rate)"/>
+        </node>
+    </group>
+    
+    
+    <!-- ============ 启动信息 ============ -->
+    <node name="startup_info" pkg="rostopic" type="rostopic" 
+          args="echo -n 'TurtleBot 数据收集环境已启动！'" output="screen" launch-prefix="bash -c 'sleep 3; $0 $@'"/>
+    
+</launch>

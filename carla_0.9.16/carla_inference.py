@@ -18,10 +18,27 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
+import random
 import torch
 import numpy as np
 import cv2
 import carla
+
+
+def set_seed(seed=42):
+    """设置随机种子，保证推理结果可复现"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
+# 设置随机种子
+set_seed(42)
 
 # 导入项目模块
 from carla_config import *

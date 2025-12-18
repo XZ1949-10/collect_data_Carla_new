@@ -163,20 +163,26 @@ class NPCManager:
             return 0
         
         all_spawn_points = self.world.get_map().get_spawn_points()
+        total_spawn_points = len(all_spawn_points)
+        print(f"  📍 地图总生成点数量: {total_spawn_points}")
         
         # 过滤掉需要排除的生成点（数据收集车辆使用的生成点）
         if excluded_spawn_indices:
             excluded_set = set(excluded_spawn_indices)
             spawn_points = [(i, sp) for i, sp in enumerate(all_spawn_points) 
                            if i not in excluded_set]
-            if len(spawn_points) < len(all_spawn_points):
-                print(f"  📍 已排除 {len(excluded_set)} 个数据收集生成点")
+            print(f"  📍 已排除 {len(excluded_set)} 个数据收集生成点，剩余: {len(spawn_points)}")
         else:
             spawn_points = list(enumerate(all_spawn_points))
+            print(f"  📍 使用全部生成点: {len(spawn_points)}")
         
         # 使用后半部分生成点
         if use_back_spawn_points:
+            before_count = len(spawn_points)
             spawn_points = spawn_points[len(spawn_points) // 2:]
+            print(f"  📍 使用后半部分生成点: {len(spawn_points)} (从 {before_count} 个中)")
+        
+        print(f"  📍 最终可用生成点: {len(spawn_points)}，请求生成: {num}")
         
         random.shuffle(spawn_points)
         
@@ -323,6 +329,279 @@ class NPCManager:
         print(f"  ✅ 行人清理完成: {walkers_cleaned}")
         
         print(f"✅ NPC 清理完成（车辆: {vehicles_cleaned}, 行人: {walkers_cleaned}）")
+    
+    def clear_spawn_point(self, spawn_point_index: int, radius: float = 5.0, 
+                          respawn_elsewhere: bool = True) -> bool:
+        """清除指定生成点附近的所有车辆，并可选择在其他位置重新生成NPC
+        
+        参数:
+            spawn_point_index: 生成点索引
+            radius: 检测半径（米）
+            respawn_elsewhere: 是否在其他位置重新生成被清除的NPC
+            
+        返回:
+            bool: 是否清除了车辆
+        """
+        all_spawn_points = self.world.get_map().get_spawn_points()
+        if spawn_point_index < 0 or spawn_point_index >= len(all_spawn_points):
+            return False
+        
+        target_location = all_spawn_points[spawn_point_index].location
+        
+        # 获取世界中所有车辆（不仅仅是我们管理的NPC）
+        all_vehicles = self.world.get_actors().filter('*vehicle*')
+        
+        # 查找在该位置附近的所有车辆
+        vehicles_to_remove = []
+        our_npcs_to_remove = []
+        
+        for vehicle in all_vehicles:
+            if not is_actor_alive(vehicle):
+                continue
+            try:
+                vehicle_location = vehicle.get_location()
+                distance = target_location.distance(vehicle_location)
+                if distance < radius:
+                    vehicles_to_remove.append(vehicle)
+                    # 检查是否是我们管理的NPC
+                    if vehicle in self._vehicles:
+                        our_npcs_to_remove.append(vehicle)
+            except:
+                pass
+        
+        if not vehicles_to_remove:
+            return False
+        
+        print(f"  🚗 发现 {len(vehicles_to_remove)} 辆车在生成点 {spawn_point_index} 附近，正在清除...")
+        
+        # 从我们的NPC列表中移除
+        for npc in our_npcs_to_remove:
+            if npc in self._vehicles:
+                self._vehicles.remove(npc)
+        
+        # 在同步模式下销毁actor可能有问题，先切换到异步模式
+        was_sync = False
+        if self._sync_manager is not None:
+            was_sync = self._sync_manager.is_sync
+            if was_sync:
+                self._sync_manager.ensure_async_mode(wait=True)
+        
+        # 销毁所有附近的车辆
+        destroyed = batch_destroy_actors(self.client, vehicles_to_remove, silent=True)
+        print(f"  ✅ 已清除 {destroyed} 辆车")
+        
+        # 等待销毁完成
+        time.sleep(0.5)
+        
+        # 恢复同步模式
+        if was_sync and self._sync_manager is not None:
+            self._sync_manager.ensure_sync_mode(warmup=True, verify=False)
+        
+        # 只重新生成我们管理的NPC数量
+        if respawn_elsewhere and len(our_npcs_to_remove) > 0:
+            self._respawn_vehicles_elsewhere(len(our_npcs_to_remove), exclude_indices=[spawn_point_index])
+        
+        return destroyed > 0
+    
+    def clear_location(self, location, radius: float = 5.0, 
+                       respawn_elsewhere: bool = True) -> bool:
+        """清除指定位置附近的所有车辆（用于碰撞恢复点）
+        
+        参数:
+            location: carla.Location 位置
+            radius: 检测半径（米）
+            respawn_elsewhere: 是否在其他位置重新生成被清除的NPC
+            
+        返回:
+            bool: 是否清除了车辆
+        """
+        # 获取世界中所有车辆（不仅仅是我们管理的NPC）
+        all_vehicles = self.world.get_actors().filter('*vehicle*')
+        
+        # 查找在该位置附近的所有车辆
+        vehicles_to_remove = []
+        our_npcs_to_remove = []
+        
+        for vehicle in all_vehicles:
+            if not is_actor_alive(vehicle):
+                continue
+            try:
+                vehicle_location = vehicle.get_location()
+                distance = location.distance(vehicle_location)
+                if distance < radius:
+                    vehicles_to_remove.append(vehicle)
+                    # 检查是否是我们管理的NPC
+                    if vehicle in self._vehicles:
+                        our_npcs_to_remove.append(vehicle)
+            except:
+                pass
+        
+        if not vehicles_to_remove:
+            return False
+        
+        print(f"  🚗 发现 {len(vehicles_to_remove)} 辆车在恢复点附近，正在清除...")
+        
+        # 从我们的NPC列表中移除
+        for npc in our_npcs_to_remove:
+            if npc in self._vehicles:
+                self._vehicles.remove(npc)
+        
+        # 在同步模式下销毁actor可能有问题，先切换到异步模式
+        was_sync = False
+        if self._sync_manager is not None:
+            was_sync = self._sync_manager.is_sync
+            if was_sync:
+                self._sync_manager.ensure_async_mode(wait=True)
+        
+        # 销毁所有附近的车辆
+        destroyed = batch_destroy_actors(self.client, vehicles_to_remove, silent=True)
+        print(f"  ✅ 已清除 {destroyed} 辆车")
+        
+        # 等待销毁完成
+        time.sleep(0.5)
+        
+        # 恢复同步模式
+        if was_sync and self._sync_manager is not None:
+            self._sync_manager.ensure_sync_mode(warmup=True, verify=False)
+        
+        # 只重新生成我们管理的NPC数量
+        if respawn_elsewhere and len(our_npcs_to_remove) > 0:
+            self._respawn_vehicles_elsewhere(len(our_npcs_to_remove), exclude_indices=[])
+        
+        return destroyed > 0
+    
+    def _respawn_vehicles_elsewhere(self, count: int, exclude_indices: List[int] = None):
+        """在其他可用生成点重新生成NPC车辆
+        
+        参数:
+            count: 要生成的数量
+            exclude_indices: 需要排除的生成点索引
+        """
+        if count <= 0:
+            return
+        
+        print(f"  🔄 正在其他可用生成点重新生成 {count} 辆NPC...")
+        
+        blueprints = list(self.blueprint_library.filter('vehicle.*'))
+        blueprints = [bp for bp in blueprints 
+                     if int(bp.get_attribute('number_of_wheels')) == 4]
+        
+        if not blueprints:
+            return
+        
+        all_spawn_points = self.world.get_map().get_spawn_points()
+        exclude_set = set(exclude_indices) if exclude_indices else set()
+        
+        # 获取当前所有NPC的位置，避免在这些位置生成
+        occupied_locations = []
+        for vehicle in self._vehicles:
+            if is_actor_alive(vehicle):
+                try:
+                    occupied_locations.append(vehicle.get_location())
+                except:
+                    pass
+        
+        # 筛选可用的生成点
+        available_spawn_points = []
+        for i, sp in enumerate(all_spawn_points):
+            if i in exclude_set:
+                continue
+            # 检查是否与现有NPC太近
+            is_occupied = False
+            for occ_loc in occupied_locations:
+                if sp.location.distance(occ_loc) < 10.0:
+                    is_occupied = True
+                    break
+            if not is_occupied:
+                available_spawn_points.append(sp)
+        
+        random.shuffle(available_spawn_points)
+        
+        tm = self.traffic_manager
+        spawned = 0
+        
+        for sp in available_spawn_points[:count]:
+            bp = random.choice(blueprints)
+            if bp.has_attribute('color'):
+                colors = bp.get_attribute('color').recommended_values
+                bp.set_attribute('color', random.choice(colors))
+            
+            vehicle = self.world.try_spawn_actor(bp, sp)
+            if vehicle:
+                vehicle.set_autopilot(True, tm.get_port())
+                tm.distance_to_leading_vehicle(vehicle, 3.0)
+                tm.vehicle_percentage_speed_difference(vehicle, 30.0)
+                self._vehicles.append(vehicle)
+                spawned += 1
+        
+        if spawned > 0:
+            print(f"  ✅ 已在其他可用生成点重新生成 {spawned} 辆NPC")
+    
+    def ensure_npc_count(self, target_count: int, exclude_indices: List[int] = None) -> int:
+        """确保NPC车辆数量达到目标值
+        
+        检查当前NPC数量，如果不足则补充生成。
+        注意：如果可用生成点不足，可能无法达到目标数量。
+        
+        参数:
+            target_count: 目标NPC数量
+            exclude_indices: 需要排除的生成点索引
+            
+        返回:
+            int: 当前NPC数量
+        """
+        # 清理已经不存在的NPC引用
+        self._vehicles = [v for v in self._vehicles if is_actor_alive(v)]
+        
+        current_count = len(self._vehicles)
+        
+        if current_count >= target_count:
+            return current_count
+        
+        need_spawn = target_count - current_count
+        print(f"  📊 NPC数量检查: 当前 {current_count}/{target_count}，需要补充 {need_spawn} 辆")
+        
+        # 检查可用生成点数量
+        all_spawn_points = self.world.get_map().get_spawn_points()
+        exclude_set = set(exclude_indices) if exclude_indices else set()
+        
+        # 获取当前所有NPC的位置
+        occupied_locations = []
+        for vehicle in self._vehicles:
+            if is_actor_alive(vehicle):
+                try:
+                    occupied_locations.append(vehicle.get_location())
+                except:
+                    pass
+        
+        # 计算可用生成点数量
+        available_count = 0
+        for i, sp in enumerate(all_spawn_points):
+            if i in exclude_set:
+                continue
+            is_occupied = False
+            for occ_loc in occupied_locations:
+                if sp.location.distance(occ_loc) < 10.0:
+                    is_occupied = True
+                    break
+            if not is_occupied:
+                available_count += 1
+        
+        if available_count < need_spawn:
+            print(f"  ⚠️ 可用生成点不足: 需要 {need_spawn} 个，但只有 {available_count} 个可用")
+        
+        self._respawn_vehicles_elsewhere(need_spawn, exclude_indices=exclude_indices)
+        
+        # 返回最终数量并检查是否达标
+        self._vehicles = [v for v in self._vehicles if is_actor_alive(v)]
+        final_count = len(self._vehicles)
+        
+        if final_count < target_count:
+            print(f"  ⚠️ NPC数量未达标: 目标 {target_count}，实际 {final_count}")
+        else:
+            print(f"  ✅ NPC数量已达标: {final_count}/{target_count}")
+        
+        return final_count
     
     def cleanup_vehicles(self) -> int:
         """清理所有 NPC 车辆

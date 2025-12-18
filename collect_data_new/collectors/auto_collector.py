@@ -366,6 +366,57 @@ class AutoFullTownCollector:
             )
             self._npc_manager.spawn_all(npc_cfg, excluded_spawn_indices=excluded_spawn_indices)
     
+    def _clear_spawn_point_for_route(self, spawn_point_index: int) -> bool:
+        """清除指定生成点的NPC，为数据收集车辆腾出位置
+        
+        参数:
+            spawn_point_index: 生成点索引
+            
+        返回:
+            bool: 是否清除了NPC
+        """
+        if self._npc_manager is None:
+            return False
+        cleared = self._npc_manager.clear_spawn_point(spawn_point_index, radius=5.0, respawn_elsewhere=True)
+        
+        # 确保NPC数量满足配置要求
+        self._ensure_npc_count(exclude_indices=[spawn_point_index])
+        
+        return cleared
+    
+    def _clear_location_for_recovery(self, location) -> bool:
+        """清除指定位置的NPC，为碰撞恢复腾出位置
+        
+        参数:
+            location: carla.Location 恢复点位置
+            
+        返回:
+            bool: 是否清除了NPC
+        """
+        if self._npc_manager is None:
+            return False
+        cleared = self._npc_manager.clear_location(location, radius=5.0, respawn_elsewhere=True)
+        
+        # 确保NPC数量满足配置要求
+        self._ensure_npc_count(exclude_indices=[])
+        
+        return cleared
+    
+    def _ensure_npc_count(self, exclude_indices: List[int] = None):
+        """确保NPC数量满足配置要求
+        
+        参数:
+            exclude_indices: 需要排除的生成点索引
+        """
+        if self._npc_manager is None:
+            return
+        
+        target_count = self.config.npc.num_vehicles
+        if target_count <= 0:
+            return
+        
+        self._npc_manager.ensure_npc_count(target_count, exclude_indices=exclude_indices)
+    
     def generate_routes(self, cache_path: Optional[str] = None) -> List[Tuple[int, int, float]]:
         """生成路线"""
         # 如果使用红绿灯路线策略
@@ -390,6 +441,9 @@ class AutoFullTownCollector:
         print(f"\n{'='*70}")
         print(f"📊 收集路线: {start_idx} → {end_idx}")
         print(f"{'='*70}")
+        
+        # 清除起点位置的NPC（如果有的话）
+        self._clear_spawn_point_for_route(start_idx)
         
         # 设置恢复管理器
         destination = self.spawn_points[end_idx].location
@@ -429,6 +483,8 @@ class AutoFullTownCollector:
                 recovery_transform = result.get('recovery_transform')
                 if recovery_transform is not None:
                     print(f"\n🔄 碰撞恢复：从路线waypoint恢复")
+                    # 清除恢复点位置的NPC（如果有的话）
+                    self._clear_location_for_recovery(recovery_transform.location)
                     current_spawn_transform = recovery_transform
                     current_start_idx = None
                     time.sleep(1.0)
@@ -464,9 +520,14 @@ class AutoFullTownCollector:
             
             # 生成车辆
             if spawn_transform is not None:
+                # 碰撞恢复：清除恢复点的NPC
+                self._clear_location_for_recovery(spawn_transform.location)
                 if not self._spawn_at_transform(spawn_transform, end_idx):
                     return result
             else:
+                # 正常路线：清除起点的NPC
+                if start_idx is not None:
+                    self._clear_spawn_point_for_route(start_idx)
                 if not self._inner_collector.spawn_vehicle(start_idx, end_idx):
                     return result
             
@@ -920,21 +981,15 @@ class AutoFullTownCollector:
             # 设置天气
             self.set_weather_from_config()
             
-            # 先生成路线（需要在生成 NPC 之前，以便排除路线使用的生成点）
+            # 先生成路线
             route_pairs = self.generate_routes(cache_path=route_cache_path)
             
             if not route_pairs:
                 print("❌ 没有生成任何路线！")
                 return
             
-            # 提取所有路线使用的生成点索引（起点和终点）
-            route_spawn_indices = set()
-            for start_idx, end_idx, _ in route_pairs:
-                route_spawn_indices.add(start_idx)
-                route_spawn_indices.add(end_idx)
-            
-            # 生成NPC（排除路线使用的生成点，避免冲突）
-            self._spawn_npcs(excluded_spawn_indices=list(route_spawn_indices))
+            # 生成NPC（不再排除所有路线的生成点，而是在每条路线开始前动态清除）
+            self._spawn_npcs(excluded_spawn_indices=None)
             
             print("\n" + "="*70)
             print("🚀 开始全自动数据收集")
@@ -1091,21 +1146,15 @@ class AutoFullTownCollector:
             print(f"🌤️ 设置天气: {weather_name}")
             self.set_weather(weather_name)
             
-            # 先生成路线（需要在生成 NPC 之前，以便排除路线使用的生成点）
+            # 先生成路线
             route_pairs = self.generate_routes(cache_path=route_cache_path)
             
             if not route_pairs:
                 print("❌ 没有生成任何路线！")
                 return
             
-            # 提取所有路线使用的生成点索引
-            route_spawn_indices = set()
-            for start_idx, end_idx, _ in route_pairs:
-                route_spawn_indices.add(start_idx)
-                route_spawn_indices.add(end_idx)
-            
-            # 生成 NPC（排除路线使用的生成点）
-            self._spawn_npcs(excluded_spawn_indices=list(route_spawn_indices))
+            # 生成 NPC（不再排除所有路线的生成点，而是在每条路线开始前动态清除）
+            self._spawn_npcs(excluded_spawn_indices=None)
             
             print("\n" + "="*70)
             print(f"🚀 开始数据收集 - 天气: {weather_name}")

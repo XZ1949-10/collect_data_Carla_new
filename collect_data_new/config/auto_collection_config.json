@@ -26,13 +26,13 @@
     
     "world_settings": {
         "_comment": "世界环境配置，控制NPC生成",
-        "spawn_npc_vehicles": false,
+        "spawn_npc_vehicles": true,
         "_comment_spawn_npc_vehicles": "是否生成NPC车辆",
-        "num_npc_vehicles": 30,
+        "num_npc_vehicles": 100,
         "_comment_num_npc_vehicles": "NPC车辆数量，0=不生成",
-        "spawn_npc_walkers": false,
+        "spawn_npc_walkers": true,
         "_comment_spawn_npc_walkers": "是否生成NPC行人",
-        "num_npc_walkers": 30,
+        "num_npc_walkers": 0,
         "_comment_num_npc_walkers": "NPC行人数量",
         "npc_behavior": {
             "_comment": "NPC车辆行为配置（不影响行人）",
@@ -92,11 +92,11 @@
     
     "route_generation": {
         "_comment": "路线生成策略配置，控制如何选择起点和终点",
-        "strategy": "traffic_light",
+        "strategy": "smart",
         "_comment_strategy": "路线生成策略: random=随机, smart=智能(优先选择转弯多的路线), traffic_light=红绿灯路口优先",
-        "min_distance": 30.0,
+        "min_distance": 100.0,
         "_comment_min_distance": "路线最小长度(米)，过短的路线会被过滤",
-        "max_distance": 80.0,
+        "max_distance": 300.0,
         "_comment_max_distance": "路线最大长度(米)，过长的路线会被过滤",
         "target_routes_ratio": 1.0,
         "_comment_target_routes_ratio": "目标路线数量比例(0-1)，1.0=使用所有有效路线",
@@ -228,7 +228,7 @@
     },
     
     "anomaly_detection": {
-        "_comment": "异常行为检测配置，用于检测和处理异常驾驶状态",
+        "_comment": "异常行为检测配置（智能版v2.0），用于检测和处理异常驾驶状态",
         "enabled": true,
         "_comment_enabled": "是否启用异常检测",
         "spin_detection": {
@@ -250,14 +250,35 @@
             "_comment_roll_threshold": "横滚角阈值(度)，超过此角度判定为翻车"
         },
         "stuck_detection": {
-            "_comment": "卡住检测，检测车辆是否长时间无法移动",
+            "_comment": "智能卡住检测（v2.0），区分正常停车和真正卡住",
             "enabled": true,
             "_comment_enabled": "是否启用卡住检测",
             "speed_threshold": 0.5,
             "_comment_speed_threshold": "速度阈值(m/s)，低于此速度视为静止",
             "time_threshold": 10.0,
-            "_comment_time_threshold": "时间阈值(秒)，静止超过此时间判定为卡住"
-        }
+            "_comment_time_threshold": "基础时间阈值(秒)，静止超过此时间开始判断是否卡住",
+            "position_threshold": 0.5,
+            "_comment_position_threshold": "位置变化阈值(米)，小于此值视为未移动",
+            "throttle_threshold": 0.1,
+            "_comment_throttle_threshold": "油门阈值，大于此值表示在尝试移动",
+            "check_traffic_light": true,
+            "_comment_check_traffic_light": "是否检查红绿灯状态（等红灯不算卡住）",
+            "check_blocking": true,
+            "_comment_check_blocking": "是否检查前方障碍物",
+            "blocking_distance": 5.0,
+            "_comment_blocking_distance": "前方障碍物检测距离(米)",
+            "max_wait_at_light": 60.0,
+            "_comment_max_wait_at_light": "等红灯最大等待时间(秒)，超过视为红绿灯故障",
+            "consecutive_attempts": 3,
+            "_comment_consecutive_attempts": "连续尝试移动失败次数阈值，达到后开始计时"
+        },
+        "_stuck_detection_v2_notes": [
+            "智能卡住检测会区分以下情况：",
+            "1. 正常等红灯 - 不算卡住，但超过max_wait_at_light秒会报警",
+            "2. 正常让行/拥堵 - 前方有障碍物且没有油门，不算卡住",
+            "3. 有油门但不动 - 可能被卡住或阻挡，开始计时",
+            "4. 位置长时间无变化 - 综合判断是否真正卡住"
+        ]
     },
     
     "advanced_settings": {
