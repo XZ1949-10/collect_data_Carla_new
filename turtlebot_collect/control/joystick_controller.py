@@ -9,7 +9,7 @@ import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
 
-from ..config import TopicConfig, JoystickConfig, CommandConfig
+from config import TopicConfig, JoystickConfig, CommandConfig
 
 
 class JoystickController:
@@ -41,6 +41,9 @@ class JoystickController:
         self.angular_vel = 0.0
         self.last_btn_states = {}
         
+        # 控制启用状态 (防误触功能)
+        self.control_enabled = False
+        
         # 回调函数
         self.on_record_start = None
         self.on_record_stop = None
@@ -48,6 +51,7 @@ class JoystickController:
         self.on_command_change = None
         self.on_emergency_stop = None
         self.on_quit = None
+        self.on_control_toggle = None  # 控制启用/禁用回调
         
         # ROS 发布者
         self.cmd_pub = rospy.Publisher(TopicConfig.CMD_VEL, Twist, queue_size=1)
@@ -57,14 +61,22 @@ class JoystickController:
         
     def _joy_callback(self, msg):
         """手柄消息回调"""
-        # 处理摇杆
+        # 先处理按钮 (包括控制启用/禁用)
+        self._handle_buttons(msg.buttons)
+        
+        # 处理摇杆 (只有启用控制时才发送速度命令)
         if len(msg.axes) > max(self.config.AXIS_LINEAR, self.config.AXIS_ANGULAR):
             linear = msg.axes[self.config.AXIS_LINEAR]
             angular = msg.axes[self.config.AXIS_ANGULAR]
-            self._send_velocity(linear, angular)
-        
-        # 处理按钮
-        self._handle_buttons(msg.buttons)
+            
+            if self.control_enabled:
+                self._send_velocity(linear, angular)
+            else:
+                # 控制禁用时，只更新内部状态但不发送命令
+                self.linear_vel = linear * self.max_linear
+                self.angular_vel = angular * self.max_angular
+                # 发送零速度确保机器人停止
+                self._send_zero_velocity()
     
     def _handle_buttons(self, buttons):
         """处理按钮输入"""
@@ -77,6 +89,16 @@ class JoystickController:
             self.last_btn_states[btn_id] = current
             return current == 1 and last == 0
         
+        # 控制启用/禁用切换 (优先处理，防误触)
+        if hasattr(self.config, 'BTN_ENABLE_CONTROL') and btn_pressed(self.config.BTN_ENABLE_CONTROL):
+            self.control_enabled = not self.control_enabled
+            if not self.control_enabled:
+                # 禁用时立即停止机器人
+                self._send_zero_velocity()
+            if self.on_control_toggle:
+                self.on_control_toggle(self.control_enabled)
+            rospy.loginfo(f"控制已{'启用' if self.control_enabled else '禁用'}")
+        
         # 录制控制
         if btn_pressed(self.config.BTN_RECORD):
             if self.on_record_start:
@@ -87,8 +109,12 @@ class JoystickController:
             if self.on_record_stop:
                 self.on_record_stop()
         
-        # 紧急停止
+        # 紧急停止 (无论控制是否启用都生效)
         if hasattr(self.config, 'BTN_EMERGENCY') and btn_pressed(self.config.BTN_EMERGENCY):
+            self.control_enabled = False  # 紧急停止时也禁用控制
+            self._send_zero_velocity()
+            if self.on_control_toggle:
+                self.on_control_toggle(False)
             if self.on_emergency_stop:
                 self.on_emergency_stop()
         
@@ -126,9 +152,26 @@ class JoystickController:
         self.linear_vel = twist.linear.x
         self.angular_vel = twist.angular.z
     
+    def _send_zero_velocity(self):
+        """发送零速度命令 (停止机器人)"""
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        self.cmd_pub.publish(twist)
+    
     def stop(self):
         """停止机器人"""
         self._send_velocity(0, 0)
+    
+    def is_control_enabled(self):
+        """获取控制启用状态"""
+        return self.control_enabled
+    
+    def set_control_enabled(self, enabled):
+        """设置控制启用状态"""
+        self.control_enabled = enabled
+        if not enabled:
+            self._send_zero_velocity()
     
     def get_velocity(self):
         """获取当前速度命令"""
@@ -136,7 +179,7 @@ class JoystickController:
     
     def set_callbacks(self, on_record_start=None, on_record_stop=None, 
                      on_record_toggle=None, on_command_change=None, 
-                     on_emergency_stop=None, on_quit=None):
+                     on_emergency_stop=None, on_quit=None, on_control_toggle=None):
         """
         设置回调函数
         
@@ -147,6 +190,7 @@ class JoystickController:
             on_command_change: 命令变化回调 (command, name)
             on_emergency_stop: 紧急停止回调 ()
             on_quit: 退出回调 ()
+            on_control_toggle: 控制启用/禁用回调 (enabled: bool)
         """
         self.on_record_start = on_record_start
         self.on_record_stop = on_record_stop
@@ -154,6 +198,7 @@ class JoystickController:
         self.on_command_change = on_command_change
         self.on_emergency_stop = on_emergency_stop
         self.on_quit = on_quit
+        self.on_control_toggle = on_control_toggle
     
     def cleanup(self):
         """清理资源（与 KeyboardController 接口一致）"""

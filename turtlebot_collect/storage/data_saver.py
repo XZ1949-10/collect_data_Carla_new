@@ -11,7 +11,7 @@ import numpy as np
 import rospy
 from datetime import datetime
 
-from ..config import StorageConfig
+from config import StorageConfig
 
 
 class DataSaver:

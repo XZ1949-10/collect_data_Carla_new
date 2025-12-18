@@ -39,8 +39,75 @@
 import cv2
 import numpy as np
 import time
+from PIL import Image, ImageDraw, ImageFont
 
-from ..config import DisplayConfig, CommandConfig, ImageConfig
+from config import DisplayConfig, CommandConfig, ImageConfig
+
+
+def get_chinese_font(size=16):
+    """
+    获取支持中文的字体
+    
+    参数:
+        size (int): 字体大小
+    
+    返回:
+        ImageFont: PIL字体对象
+    """
+    # 尝试常见的中文字体路径
+    font_paths = [
+        # Windows
+        "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
+        "C:/Windows/Fonts/simhei.ttf",    # 黑体
+        "C:/Windows/Fonts/simsun.ttc",    # 宋体
+        # Linux
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        # macOS
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+    ]
+    
+    for font_path in font_paths:
+        try:
+            return ImageFont.truetype(font_path, size)
+        except (IOError, OSError):
+            continue
+    
+    # 如果都找不到，使用默认字体
+    return ImageFont.load_default()
+
+
+def put_chinese_text(img, text, position, font_size=16, color=(255, 255, 255)):
+    """
+    在OpenCV图像上绘制中文文字
+    
+    参数:
+        img (np.ndarray): BGR格式的OpenCV图像
+        text (str): 要绘制的文字
+        position (tuple): 文字位置 (x, y)
+        font_size (int): 字体大小
+        color (tuple): BGR颜色
+    
+    返回:
+        np.ndarray: 绘制后的图像
+    """
+    # 转换为PIL图像 (BGR -> RGB)
+    img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img_pil)
+    
+    # 获取字体
+    font = get_chinese_font(font_size)
+    
+    # BGR -> RGB 颜色转换
+    color_rgb = (color[2], color[1], color[0])
+    
+    # 绘制文字
+    draw.text(position, text, font=font, fill=color_rgb)
+    
+    # 转换回OpenCV格式 (RGB -> BGR)
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
 
 class CollectorVisualizer:
@@ -163,7 +230,7 @@ class CollectorVisualizer:
     def create_display(self, image, is_collecting, current_command, 
                        frame_count=0, speed=0.0, linear_vel=0.0, angular_vel=0.0,
                        sync_status=True, episode_count=0,
-                       steer=0.0, throttle=0.0, brake=0.0):
+                       steer=0.0, throttle=0.0, brake=0.0, control_enabled=False):
         """
         创建显示图像
         
@@ -180,6 +247,7 @@ class CollectorVisualizer:
             steer (float): 转向 (-1.0 ~ 1.0)
             throttle (float): 油门 (0.0 ~ 1.0)
             brake (float): 刹车 (0.0 ~ 1.0)
+            control_enabled (bool): 控制是否启用 (防误触)
             
         返回:
             np.ndarray: BGR格式显示图像
@@ -194,13 +262,13 @@ class CollectorVisualizer:
         
         # ============ 左侧: 摄像头画面 ============
         img_x, img_y = self.PADDING, self.PADDING
-        self._draw_camera_view(canvas, image, img_x, img_y, is_collecting)
+        self._draw_camera_view(canvas, image, img_x, img_y, is_collecting, control_enabled)
         
         # ============ 右侧: 信息面板 ============
         panel_x = self.image_width + self.PADDING * 2
         self._draw_info_panel(canvas, panel_x, self.PADDING, 
                              is_collecting, current_command, frame_count,
-                             sync_status, episode_count)
+                             sync_status, episode_count, control_enabled)
         
         # ============ 底部: 双栏控制面板 ============
         ctrl_y = self.image_height + self.PADDING * 2
@@ -210,7 +278,7 @@ class CollectorVisualizer:
         
         return canvas
     
-    def _draw_camera_view(self, canvas, image, x, y, is_collecting):
+    def _draw_camera_view(self, canvas, image, x, y, is_collecting, control_enabled=False):
         """绘制摄像头画面区域"""
         # 外边框
         border = 4
@@ -232,13 +300,17 @@ class CollectorVisualizer:
         else:
             cv2.rectangle(canvas, (x, y), (x + self.image_width, y + self.image_height),
                          self.COLOR_BG_PANEL, -1)
-            self._draw_centered_text(canvas, "等待摄像头...", 
+            self._draw_centered_chinese_text(canvas, "等待摄像头...", 
                                     x, y, self.image_width, self.image_height,
-                                    self.COLOR_TEXT_MUTED, 0.7)
+                                    self.COLOR_TEXT_MUTED, 18)
         
         # 录制指示器
         if is_collecting:
             self._draw_recording_badge(canvas, x + 8, y + 8)
+        
+        # 控制禁用提示 (显示在画面底部)
+        if not control_enabled:
+            self._draw_control_disabled_badge(canvas, x + 8, y + self.image_height - 34)
     
     def _draw_recording_badge(self, canvas, x, y):
         """绘制录制徽章 (带脉冲动画)"""
@@ -258,8 +330,24 @@ class CollectorVisualizer:
         cv2.putText(canvas, "REC", (x + 28, y + 18),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.COLOR_RECORDING, 2, cv2.LINE_AA)
     
+    def _draw_control_disabled_badge(self, canvas, x, y):
+        """绘制控制禁用提示徽章"""
+        # 背景框 (半透明黄色警告)
+        badge_w, badge_h = 140, 26
+        cv2.rectangle(canvas, (x, y), (x + badge_w, y + badge_h), (20, 40, 60), -1)
+        cv2.rectangle(canvas, (x, y), (x + badge_w, y + badge_h), self.COLOR_WARNING, 2)
+        
+        # 警告图标 (三角形)
+        pts = np.array([[x + 14, y + 6], [x + 6, y + 20], [x + 22, y + 20]], np.int32)
+        cv2.fillPoly(canvas, [pts], self.COLOR_WARNING)
+        cv2.putText(canvas, "!", (x + 12, y + 18),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (20, 40, 60), 1, cv2.LINE_AA)
+        
+        # 文字
+        self._put_chinese_text(canvas, "控制已禁用", (x + 28, y + 5), 13, self.COLOR_WARNING)
+    
     def _draw_info_panel(self, canvas, x, y, is_collecting, current_command, frame_count,
-                        sync_status, episode_count):
+                        sync_status, episode_count, control_enabled=False):
         """绘制右侧信息面板"""
         panel_w = self.PANEL_WIDTH
         panel_h = self.image_height + 8
@@ -275,23 +363,29 @@ class CollectorVisualizer:
         # ═══════ 运行状态 ═══════
         content_y = self._draw_section_title(canvas, content_x, content_y, inner_w, "运行状态")
         
+        # 控制启用状态
+        if control_enabled:
+            self._draw_status_dot(canvas, content_x + 4, content_y + 8, self.COLOR_SYNC_OK, False)
+            self._put_chinese_text(canvas, "控制启用", (content_x + 20, content_y + 2), 13, self.COLOR_SYNC_OK)
+        else:
+            self._draw_status_dot(canvas, content_x + 4, content_y + 8, self.COLOR_WARNING, True)
+            self._put_chinese_text(canvas, "控制禁用", (content_x + 20, content_y + 2), 13, self.COLOR_WARNING)
+        content_y += 20
+        
         # 录制状态
         if is_collecting:
             self._draw_status_dot(canvas, content_x + 4, content_y + 8, self.COLOR_RECORDING, True)
-            cv2.putText(canvas, "录制中", (content_x + 20, content_y + 14),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.COLOR_RECORDING, 1, cv2.LINE_AA)
+            self._put_chinese_text(canvas, "录制中", (content_x + 20, content_y + 2), 13, self.COLOR_RECORDING)
         else:
             self._draw_status_dot(canvas, content_x + 4, content_y + 8, self.COLOR_STANDBY, False)
-            cv2.putText(canvas, "待机", (content_x + 20, content_y + 14),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.COLOR_STANDBY, 1, cv2.LINE_AA)
+            self._put_chinese_text(canvas, "待机", (content_x + 20, content_y + 2), 13, self.COLOR_STANDBY)
         content_y += 20
         
         # 同步状态
         sync_color = self.COLOR_SYNC_OK if sync_status else self.COLOR_SYNC_FAIL
         sync_text = "同步正常" if sync_status else "同步异常"
         self._draw_status_dot(canvas, content_x + 4, content_y + 8, sync_color, False)
-        cv2.putText(canvas, sync_text, (content_x + 20, content_y + 14),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, sync_color, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, sync_text, (content_x + 20, content_y + 2), 13, sync_color)
         content_y += self.SECTION_GAP + 22
         
         # ═══════ 导航命令 ═══════
@@ -308,8 +402,8 @@ class CollectorVisualizer:
                      cmd_color, 2)
         
         # 命令文字居中
-        self._draw_centered_text(canvas, cmd_name, content_x, cmd_y, inner_w, 30, 
-                                cmd_color, 0.65, thickness=2)
+        self._draw_centered_chinese_text(canvas, cmd_name, content_x, cmd_y, inner_w, 30, 
+                                cmd_color, 18)
         content_y += self.SECTION_GAP + 38
         
         # ═══════ 数据统计 ═══════
@@ -325,8 +419,7 @@ class CollectorVisualizer:
     def _draw_section_title(self, canvas, x, y, width, title):
         """绘制区块标题"""
         cv2.rectangle(canvas, (x - 4, y), (x + width + 4, y + 20), self.COLOR_BG_HEADER, -1)
-        cv2.putText(canvas, title, (x, y + 14),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.42, self.COLOR_TITLE_CN, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, title, (x, y + 2), 14, self.COLOR_TITLE_CN)
         cv2.line(canvas, (x - 4, y + 20), (x + width + 4, y + 20), self.COLOR_DIVIDER, 1)
         return y + 26
     
@@ -341,18 +434,40 @@ class CollectorVisualizer:
     
     def _draw_info_item(self, canvas, x, y, label, value, value_color):
         """绘制信息项"""
-        cv2.putText(canvas, f"{label}:", (x + 4, y + 12),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.COLOR_TEXT_MUTED, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, f"{label}:", (x + 4, y), 13, self.COLOR_TEXT_MUTED)
         cv2.putText(canvas, str(value), (x + 60, y + 12),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, value_color, 1, cv2.LINE_AA)
     
     def _draw_centered_text(self, canvas, text, x, y, w, h, color, scale, thickness=1):
-        """绘制居中文字"""
+        """绘制居中英文文字"""
         text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
         text_x = x + (w - text_size[0]) // 2
         text_y = y + (h + text_size[1]) // 2
         cv2.putText(canvas, text, (text_x, text_y),
                    cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+    
+    def _draw_centered_chinese_text(self, canvas, text, x, y, w, h, color, font_size):
+        """绘制居中中文文字"""
+        font = get_chinese_font(font_size)
+        # 获取文字尺寸 (兼容旧版 Pillow)
+        try:
+            # Pillow 8.0+ 使用 textbbox
+            img_pil = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(img_pil)
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+        except AttributeError:
+            # 旧版 Pillow 使用 textsize
+            text_w, text_h = font.getsize(text)
+        text_x = x + (w - text_w) // 2
+        text_y = y + (h - text_h) // 2
+        self._put_chinese_text(canvas, text, (text_x, text_y), font_size, color)
+    
+    def _put_chinese_text(self, canvas, text, position, font_size, color):
+        """在画布上绘制中文文字 (原地修改)"""
+        result = put_chinese_text(canvas, text, position, font_size, color)
+        canvas[:] = result[:]
     
     def _get_command_color(self, command):
         """获取命令颜色"""
@@ -393,8 +508,7 @@ class CollectorVisualizer:
         """绘制 CARLA 控制信号栏"""
         # 标题栏
         cv2.rectangle(canvas, (x, y), (x + width, y + 22), self.COLOR_BG_HEADER, -1)
-        cv2.putText(canvas, "CARLA 控制信号", (x + 10, y + 16),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.42, self.COLOR_TITLE_CARLA, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "CARLA 控制信号", (x + 10, y + 4), 13, self.COLOR_TITLE_CARLA)
         cv2.line(canvas, (x, y + 22), (x + width, y + 22), self.COLOR_DIVIDER, 1)
         
         # 进度条区域
@@ -405,8 +519,7 @@ class CollectorVisualizer:
         value_x = bar_x + bar_w + 8
         
         # 转向 (中心对称)
-        cv2.putText(canvas, "转向", (label_x, bar_y + 12),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.COLOR_TEXT_SECONDARY, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "转向", (label_x, bar_y), 13, self.COLOR_TEXT_SECONDARY)
         self._draw_steer_bar(canvas, bar_x, bar_y, steer, bar_w)
         steer_color = self.COLOR_STEER if abs(steer) > 0.05 else self.COLOR_TEXT_MUTED
         cv2.putText(canvas, f"{steer:+.3f}", (value_x, bar_y + 12),
@@ -414,8 +527,7 @@ class CollectorVisualizer:
         
         # 油门
         bar_y += self.BAR_GAP
-        cv2.putText(canvas, "油门", (label_x, bar_y + 12),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.COLOR_TEXT_SECONDARY, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "油门", (label_x, bar_y), 13, self.COLOR_TEXT_SECONDARY)
         self._draw_progress_bar(canvas, bar_x, bar_y, throttle, self.COLOR_THROTTLE, bar_w)
         throttle_color = self.COLOR_THROTTLE if throttle > 0.05 else self.COLOR_TEXT_MUTED
         cv2.putText(canvas, f"{throttle:.3f}", (value_x, bar_y + 12),
@@ -423,8 +535,7 @@ class CollectorVisualizer:
         
         # 刹车
         bar_y += self.BAR_GAP
-        cv2.putText(canvas, "刹车", (label_x, bar_y + 12),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.COLOR_TEXT_SECONDARY, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "刹车", (label_x, bar_y), 13, self.COLOR_TEXT_SECONDARY)
         self._draw_progress_bar(canvas, bar_x, bar_y, brake, self.COLOR_BRAKE, bar_w)
         brake_color = self.COLOR_BRAKE if brake > 0.05 else self.COLOR_TEXT_MUTED
         cv2.putText(canvas, f"{brake:.3f}", (value_x, bar_y + 12),
@@ -434,8 +545,7 @@ class CollectorVisualizer:
         """绘制 TurtleBot 速度栏"""
         # 标题栏
         cv2.rectangle(canvas, (x, y), (x + width, y + 22), self.COLOR_BG_HEADER, -1)
-        cv2.putText(canvas, "TurtleBot 速度", (x + 10, y + 16),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.42, self.COLOR_TITLE_TURTLE, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "TurtleBot 速度", (x + 10, y + 4), 13, self.COLOR_TITLE_TURTLE)
         cv2.line(canvas, (x, y + 22), (x + width, y + 22), self.COLOR_DIVIDER, 1)
         
         # 进度条区域
@@ -446,8 +556,7 @@ class CollectorVisualizer:
         value_x = bar_x + bar_w + 8
         
         # 线速度 (可正可负，但通常为正)
-        cv2.putText(canvas, "线速度", (label_x, bar_y + 12),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.COLOR_TEXT_SECONDARY, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "线速度", (label_x, bar_y), 13, self.COLOR_TEXT_SECONDARY)
         # 归一化到 0~1 (使用配置中的最大值)
         linear_norm = min(1.0, max(0.0, abs(linear_vel) / DisplayConfig.NORM_MAX_LINEAR_VEL))
         self._draw_progress_bar(canvas, bar_x, bar_y, linear_norm, self.COLOR_LINEAR, bar_w)
@@ -457,8 +566,7 @@ class CollectorVisualizer:
         
         # 角速度 (中心对称)
         bar_y += self.BAR_GAP
-        cv2.putText(canvas, "角速度", (label_x, bar_y + 12),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.COLOR_TEXT_SECONDARY, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "角速度", (label_x, bar_y), 13, self.COLOR_TEXT_SECONDARY)
         # 归一化到 -1~1 (使用配置中的最大值)
         angular_norm = max(-1.0, min(1.0, angular_vel / DisplayConfig.NORM_MAX_ANGULAR_VEL))
         self._draw_steer_bar(canvas, bar_x, bar_y, angular_norm, bar_w, self.COLOR_ANGULAR)
@@ -469,8 +577,7 @@ class CollectorVisualizer:
         # 速度 (km/h)
         bar_y += self.BAR_GAP
         speed_kmh = speed * 3.6
-        cv2.putText(canvas, "速度", (label_x, bar_y + 12),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.COLOR_TEXT_SECONDARY, 1, cv2.LINE_AA)
+        self._put_chinese_text(canvas, "速度", (label_x, bar_y), 13, self.COLOR_TEXT_SECONDARY)
         # 归一化到 0~1 (使用配置中的最大值)
         speed_norm = min(1.0, max(0.0, speed_kmh / DisplayConfig.NORM_MAX_SPEED_KMH))
         self._draw_progress_bar(canvas, bar_x, bar_y, speed_norm, self.COLOR_SPEED, bar_w)

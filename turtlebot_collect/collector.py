@@ -5,6 +5,11 @@ TurtleBot 数据收集主模块
 整合所有子模块，提供统一的数据收集接口
 '''
 
+import sys
+import os
+# 确保可以找到同级模块
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import numpy as np
 import rospy
 
@@ -103,7 +108,8 @@ class TurtleBotCollector:
             on_command_change=self._on_command_change,
             on_record_toggle=self._on_record_toggle,
             on_emergency_stop=self._on_emergency_stop,
-            on_quit=self._on_quit
+            on_quit=self._on_quit,
+            on_control_toggle=self._on_control_toggle
         )
         
         # 状态
@@ -112,6 +118,7 @@ class TurtleBotCollector:
         self.is_collecting = False
         self.running = True
         self.sync_status = True  # 传感器同步状态
+        self.control_enabled = False  # 控制启用状态 (默认禁用，防误触)
         
         # 丢帧统计
         self._sync_drop_count = 0      # 因同步问题丢弃的帧数
@@ -184,9 +191,16 @@ class TurtleBotCollector:
     def _on_emergency_stop(self):
         """紧急停止回调"""
         self.controller.stop()
+        self.control_enabled = False
         if self.is_collecting:
             self._stop_recording()
         rospy.logwarn("紧急停止!")
+    
+    def _on_control_toggle(self, enabled):
+        """控制启用/禁用回调"""
+        self.control_enabled = enabled
+        status = "启用" if enabled else "禁用"
+        rospy.loginfo(f"手柄控制已{status}")
     
     def _on_quit(self):
         """退出回调"""
@@ -296,6 +310,10 @@ class TurtleBotCollector:
                     linear_vel, angular_vel, speed
                 )
                 
+                # 获取控制启用状态
+                if hasattr(self.controller, 'is_control_enabled'):
+                    self.control_enabled = self.controller.is_control_enabled()
+                
                 # 创建并显示图像
                 display = self.visualizer.create_display(
                     image=image,
@@ -309,7 +327,8 @@ class TurtleBotCollector:
                     episode_count=self.data_saver.get_episode_count(),
                     steer=carla_ctrl['steer'],
                     throttle=carla_ctrl['throttle'],
-                    brake=carla_ctrl['brake']
+                    brake=carla_ctrl['brake'],
+                    control_enabled=self.control_enabled
                 )
                 
                 key = self.visualizer.show(display)
@@ -339,12 +358,14 @@ class TurtleBotCollector:
             self.controller.print_controls()
         else:
             print("\n手柄控制:")
-            print("  左摇杆 - 移动控制")
-            print("  A/X - 开始/停止录制")
-            print("  LB/L1 - Follow | X/□ - Left")
-            print("  B/O - Right | Y/△ - Straight")
+            print("  LB/Share - 启用/禁用控制 (防误触)")
+            print("  左摇杆 - 移动控制 (需先启用)")
+            print("  Start/Back - 开始/停止录制")
+            print("  Y/△ - Follow | X/□ - Left")
+            print("  B/O - Right | A/X - Straight")
             print("  RB/R1 - 紧急停止")
             print("  ESC - 退出")
+            print("\n注意: 启动后需按 LB/Share 启用控制才能移动机器人")
         
         print("="*50 + "\n")
 

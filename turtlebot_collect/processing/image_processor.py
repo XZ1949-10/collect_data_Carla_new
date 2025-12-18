@@ -7,7 +7,7 @@
 
 import cv2
 
-from ..config import ImageConfig
+from config import ImageConfig
 
 
 class ImageProcessor:

@@ -971,7 +971,7 @@ def main():
     parser = argparse.ArgumentParser(description='Carla自动驾驶模型实时推理（模块化版本）')
     
     # 模型参数
-    parser.add_argument('--model-path', type=str, default='./model/ddp_dynamic_5_best.pth',
+    parser.add_argument('--model-path', type=str, default='./model/finetune_traffic_light_v2_best.pth',
                         help='训练好的模型权重路径')
     parser.add_argument('--net-structure', type=int, default=2,
                         help='网络结构类型 (1|2|3)')
@@ -1020,7 +1020,7 @@ def main():
                              'HardRainNoon, HardRainSunset, SoftRainNoon, SoftRainSunset')
     
     # NPC参数
-    parser.add_argument('--npc-vehicles', type=int, default=0,
+    parser.add_argument('--npc-vehicles', type=int, default=100,
                         help='NPC车辆数量，0表示不生成')
     parser.add_argument('--npc-walkers', type=int, default=0,
                         help='NPC行人数量，0表示不生成')

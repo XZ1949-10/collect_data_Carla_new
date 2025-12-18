@@ -12,7 +12,7 @@ import platform
 import rospy
 from geometry_msgs.msg import Twist
 
-from ..config import TopicConfig, KeyboardConfig, CommandConfig
+from config import TopicConfig, KeyboardConfig, CommandConfig
 
 # 检查平台兼容性
 _IS_WINDOWS = platform.system() == 'Windows'

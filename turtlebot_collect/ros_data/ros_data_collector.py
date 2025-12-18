@@ -13,7 +13,7 @@ from sensor_msgs.msg import Image, Joy, LaserScan, Imu
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 
-from ..config import TopicConfig
+from config import TopicConfig
 
 
 class ROSDataCollector:

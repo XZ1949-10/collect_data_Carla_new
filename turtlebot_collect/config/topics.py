@@ -150,6 +150,7 @@ class JoystickConfig:
         BTN_RIGHT = BTN_B        # B 按钮 - Right 命令 (右转)
         BTN_STRAIGHT = BTN_A     # A 按钮 - Straight 命令 (直行)
         BTN_EMERGENCY = BTN_RB   # RB 按钮 - 紧急停止
+        BTN_ENABLE_CONTROL = BTN_LB  # LB 按钮 - 启用/禁用控制 (防误触)
     
     # ============ PS4 手柄 ============
     class PS4:
@@ -186,6 +187,7 @@ class JoystickConfig:
         BTN_RIGHT = BTN_O        # ○ 按钮 - Right 命令
         BTN_STRAIGHT = BTN_TRIANGLE  # △ 按钮 - Straight 命令
         BTN_EMERGENCY = BTN_R1   # R1 按钮 - 紧急停止
+        BTN_ENABLE_CONTROL = BTN_SHARE  # Share 按钮 - 启用/禁用控制 (防误触)
 
 
 class KeyboardConfig:

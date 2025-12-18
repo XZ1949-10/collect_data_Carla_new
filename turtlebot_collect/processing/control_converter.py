@@ -7,7 +7,7 @@
 
 import numpy as np
 
-from ..config import RobotConfig, CommandConfig
+from config import RobotConfig, CommandConfig
 
 
 class ControlConverter:

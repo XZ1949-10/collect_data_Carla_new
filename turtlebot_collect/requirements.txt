@@ -3,6 +3,7 @@
 numpy>=1.19.0
 opencv-python>=4.5.0
 h5py>=3.0.0
+Pillow>=8.0.0  # 用于中文文字渲染
 
 # ROS 依赖 (通过 apt 安装)
 # sudo apt install ros-noetic-cv-bridge

@@ -177,15 +177,15 @@ class PostProcessor:
                 brake = 0.0  # 自然减速场景不需要刹车
         elif go_votes > stop_votes:
             # 行驶：追踪预测速度
-            speed_error = pred_speed_normalized - speed_normalized
-            throttle = throttle + speed_error
+            # speed_error = pred_speed_normalized - speed_normalized
+            # throttle = throttle + speed_error
             throttle = np.clip(throttle, 0.0, 1.0)
             brake = 0.0
         else:
             # 票数相等：默认追踪预测速度（如果预测速度更高）
             if pred_greater_than_real:
-                speed_error = pred_speed_normalized - speed_normalized
-                throttle = throttle + speed_error
+                # speed_error = pred_speed_normalized - speed_normalized
+                # throttle = throttle + speed_error
                 throttle = np.clip(throttle, 0.0, 1.0)
                 brake = 0.0
         
