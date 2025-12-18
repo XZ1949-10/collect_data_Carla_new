@@ -66,6 +66,18 @@ https://github.com/user-attachments/assets/c659094c-47b0-4d47-a513-e5332857a732
 
 https://github.com/user-attachments/assets/2b613e98-06e3-4367-8ff4-cc6aa3442a33
 
+### 红绿灯和车辆遵循
+
+https://github.com/user-attachments/assets/51b56508-7ab4-41a9-b756-5c9b33f66a90
+
+### 模型可解释性
+
+<img src="模型可解释性图片.png" alt="模型可解释性" width="700"/>
+
+### TurtleBot 实车数据收集界面
+
+<img src="tutlebot实车收集数据界面.png" alt="TurtleBot实车收集数据界面" width="700"/>
+
 ## 项目结构
 
 ```
